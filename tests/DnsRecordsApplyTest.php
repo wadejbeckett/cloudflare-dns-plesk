@@ -72,6 +72,8 @@ final class DnsRecordsApplyTest extends TestCase
         $report = $records->apply($plan);
 
         self::assertSame(1, $report->created);
+        self::assertCount(1, $report->createdRecords);
+        self::assertSame('new1', $report->createdRecords[0]->id);
 
         $request = $transport->lastRequest();
         self::assertSame('POST', $request['method']);

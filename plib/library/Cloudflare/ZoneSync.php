@@ -7,68 +7,94 @@ namespace Noiz\CloudflareDns\Cloudflare;
 /**
  * The diff engine — the heart of the project.
  *
- * Given the records a control panel wants ("desired") and the records that
- * currently exist in a Cloudflare zone ("existing"), it computes a
+ * Given the records a control panel wants ("desired", the whole zone) and the
+ * records that currently exist in a Cloudflare zone ("existing"), it computes a
  * {@see SyncPlan} that makes Cloudflare reflect the panel WITHOUT clobbering
- * Cloudflare-owned state (proxy/orange-cloud, comments, tags, page rules).
+ * Cloudflare-owned state or records the panel does not own.
  *
- * The decisive rule: whenever a record can be matched by type + name, a value
- * change is emitted as an UPDATE (PATCH) rather than delete-and-recreate —
- * because recreating a record resets its proxy state, and updating does not.
+ * Ownership model
+ * ---------------
+ * Plesk's DNS backend gives no stable per-record identifier, so the extension
+ * instead remembers the set of Cloudflare record IDs it has created (the
+ * `managedIds`). Existing Cloudflare records are partitioned:
+ *
+ *  - **managed** — id is in `managedIds`: eligible for update / delete;
+ *  - **foreign** — created by another service or by hand: NEVER modified or
+ *    deleted (e.g. an `_acme-challenge` TXT record belonging to a different
+ *    ACME client must survive untouched);
+ *  - **skipped** — `SOA` / `NS`: Cloudflare manages those itself.
+ *
+ * A desired record with no managed counterpart is normally created; but if an
+ * identical record already exists as a foreign record it is *adopted* instead
+ * (taken under management, no API call) so the zone never accumulates
+ * duplicates.
+ *
+ * Whenever a managed record can be matched by type+name, a value change is
+ * emitted as an UPDATE (PATCH) rather than delete-and-recreate — because
+ * recreating a record resets its proxy state, and updating does not.
  *
  * {@see plan()} is a pure function: no I/O, fully unit-testable.
  */
 final class ZoneSync
 {
     /**
-     * @param Record[] $desired  records from the control panel
-     * @param Record[] $existing records currently in the Cloudflare zone
+     * @param Record[] $desired  the whole desired zone, from the control panel
+     * @param Record[] $existing every record currently in the Cloudflare zone
      * @param array{
+     *     managedIds?: string[],
+     *     skipTypes?: string[],
      *     prune?: bool,
-     *     managedIds?: string[]|null,
-     *     skipTypes?: string[]
+     *     adopt?: bool
      * } $options
-     *   - prune:      delete Cloudflare records with no panel counterpart
-     *                 (default true);
-     *   - managedIds: when given, only Cloudflare records whose id is in this
-     *                 list may be deleted — records created directly in
-     *                 Cloudflare are then left untouched (default null =
-     *                 manage everything);
+     *   - managedIds: Cloudflare record IDs this extension currently manages
+     *                 (default []: nothing managed yet — a first sync);
      *   - skipTypes:  record types Cloudflare owns and we never touch
-     *                 (default SOA + NS).
+     *                 (default SOA + NS);
+     *   - prune:      delete managed records the panel no longer has
+     *                 (default true);
+     *   - adopt:      adopt an identical foreign record instead of creating a
+     *                 duplicate (default true).
      */
     public static function plan(array $desired, array $existing, array $options = []): SyncPlan
     {
-        $prune = $options['prune'] ?? true;
-        $managedIds = $options['managedIds'] ?? null;
+        $managedIds = array_fill_keys($options['managedIds'] ?? [], true);
         $skipTypes = array_map('strtoupper', $options['skipTypes'] ?? ['SOA', 'NS']);
+        $prune = $options['prune'] ?? true;
+        $adopt = $options['adopt'] ?? true;
+
+        // --- Partition the existing Cloudflare records ----------------------
+        $managed = [];
+        $foreign = [];
+        $ignored = [];
+
+        foreach ($existing as $record) {
+            if (in_array($record->type, $skipTypes, true)) {
+                $ignored[] = $record;            // Cloudflare manages SOA/NS
+            } elseif ($record->id !== null && isset($managedIds[$record->id])) {
+                $managed[] = $record;            // ours — eligible for the diff
+            } else {
+                $foreign[] = $record;            // someone else's — hands off
+            }
+        }
+
+        $desiredByKey = self::groupByKey(self::reject($desired, $skipTypes));
+        $managedByKey = self::groupByKey($managed);
+        $foreignByKey = self::groupByKey($foreign);
 
         $creates = [];
         $updates = [];
         $deletes = [];
         $unchanged = [];
-        $ignored = [];
+        $adopted = [];
 
-        // Records of a skipped type are always left exactly as they are.
-        foreach ($existing as $record) {
-            if (in_array($record->type, $skipTypes, true)) {
-                $ignored[] = $record;
-            }
-        }
+        $keys = array_unique(array_merge(array_keys($desiredByKey), array_keys($managedByKey)));
 
-        $desiredByKey = self::groupByKey(self::reject($desired, $skipTypes));
-        $existingByKey = self::groupByKey(self::reject($existing, $skipTypes));
-
-        $allKeys = array_unique(array_merge(
-            array_keys($desiredByKey),
-            array_keys($existingByKey)
-        ));
-
-        foreach ($allKeys as $key) {
+        foreach ($keys as $key) {
             $want = $desiredByKey[$key] ?? [];
-            $have = $existingByKey[$key] ?? [];
+            $have = $managedByKey[$key] ?? [];
 
-            // Pass 1 — exact value matches: unchanged, or a TTL-only update.
+            // Pass 1 — exact value matches among our managed records:
+            // unchanged, or a TTL-only update.
             foreach ($want as $wi => $wantRecord) {
                 foreach ($have as $hi => $haveRecord) {
                     if (!$haveRecord->sameValue($wantRecord)) {
@@ -83,26 +109,31 @@ final class ZoneSync
                     break;
                 }
             }
-
             $want = array_values($want);
             $have = array_values($have);
 
-            // Pass 2 — pair leftover want/have of the same key as UPDATES.
-            // This is what preserves proxy state: a changed value becomes a
-            // PATCH on the existing record, never a delete + recreate.
+            // Pass 2 — pair leftover want/have (both ours) as UPDATES. This is
+            // what preserves proxy state: a changed value becomes a PATCH on
+            // the existing record, never a delete + recreate.
             $pairs = min(count($want), count($have));
             for ($i = 0; $i < $pairs; $i++) {
                 $updates[] = new RecordUpdate($have[$i], $want[$i]);
             }
 
-            // Pass 3 — surplus desired records: CREATE.
+            // Pass 3 — surplus desired records: adopt an identical foreign
+            // record if one exists, otherwise create.
             for ($i = $pairs, $n = count($want); $i < $n; $i++) {
-                $creates[] = $want[$i];
+                $twin = $adopt ? self::takeForeignTwin($foreignByKey, $key, $want[$i]) : null;
+                if ($twin !== null) {
+                    $adopted[] = $twin;
+                } else {
+                    $creates[] = $want[$i];
+                }
             }
 
-            // Pass 4 — surplus existing records: DELETE, subject to prune rules.
+            // Pass 4 — surplus managed records the panel no longer wants.
             for ($i = $pairs, $n = count($have); $i < $n; $i++) {
-                if (self::mayDelete($have[$i], $prune, $managedIds)) {
+                if ($prune) {
                     $deletes[] = $have[$i];
                 } else {
                     $ignored[] = $have[$i];
@@ -110,24 +141,31 @@ final class ZoneSync
             }
         }
 
-        return new SyncPlan($creates, $updates, $deletes, $unchanged, $ignored);
+        // Every foreign record not adopted is left completely untouched.
+        foreach ($foreignByKey as $records) {
+            foreach ($records as $record) {
+                $ignored[] = $record;
+            }
+        }
+
+        return new SyncPlan($creates, $updates, $deletes, $unchanged, $ignored, $adopted);
     }
 
     /**
-     * @param string[]|null $managedIds
+     * Find and remove an exact-value foreign record eligible for adoption.
+     *
+     * @param array<string,Record[]> $foreignByKey mutated: the twin is removed
      */
-    private static function mayDelete(Record $record, bool $prune, ?array $managedIds): bool
+    private static function takeForeignTwin(array &$foreignByKey, string $key, Record $wanted): ?Record
     {
-        if (!$prune) {
-            return false;
-        }
-        if ($managedIds === null) {
-            return true; // full-mirror mode
+        foreach ($foreignByKey[$key] ?? [] as $i => $candidate) {
+            if ($candidate->sameValue($wanted)) {
+                unset($foreignByKey[$key][$i]);
+                return $candidate;
+            }
         }
 
-        // Only delete records we previously created/synced; leave anything
-        // created directly in Cloudflare alone.
-        return $record->id !== null && in_array($record->id, $managedIds, true);
+        return null;
     }
 
     /**

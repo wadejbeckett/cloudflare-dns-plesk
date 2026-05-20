@@ -16,6 +16,9 @@ final class SyncReport
     public int $updated = 0;
     public int $deleted = 0;
 
+    /** @var Record[] records created in Cloudflare this run — each carries its new id */
+    public array $createdRecords = [];
+
     /** @var array<int,array{action:string,record:string,error:string}> */
     public array $errors = [];
 

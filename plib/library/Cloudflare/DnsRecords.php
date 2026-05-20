@@ -137,7 +137,7 @@ final class DnsRecords
 
         foreach ($plan->creates as $record) {
             try {
-                $this->create($record);
+                $report->createdRecords[] = $this->create($record);
                 $report->created++;
             } catch (ApiException $e) {
                 $report->addError('create', $record->name, $e);
