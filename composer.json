@@ -14,7 +14,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Noiz\\CloudflareDns\\": "src/"
+            "Noiz\\CloudflareDns\\": "plib/library/"
         }
     },
     "autoload-dev": {
