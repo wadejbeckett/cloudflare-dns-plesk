@@ -45,9 +45,12 @@ final class DnsRecords
     /**
      * Create a record (HTTP POST).
      *
-     * `proxied` is intentionally NOT sent. The panel has no proxy concept, so a
-     * new record defaults to DNS-only (grey cloud); an operator can switch the
-     * orange cloud on in Cloudflare afterwards and later syncs will preserve it.
+     * Two deliberate choices:
+     *  - `proxied` is NOT sent — the panel has no proxy concept, so a new
+     *    record defaults to DNS-only (grey cloud); an operator can switch the
+     *    orange cloud on in Cloudflare afterwards and later syncs preserve it.
+     *  - `comment` is stamped with the ownership marker, so future syncs
+     *    recognise the record as managed by this extension.
      */
     public function create(Record $record): Record
     {
@@ -56,6 +59,7 @@ final class DnsRecords
             'name' => $record->name,
             'content' => $record->content,
             'ttl' => $record->ttl,
+            'comment' => Ownership::MARKER,
         ];
         if ($record->priority !== null) {
             $payload['priority'] = $record->priority;
@@ -92,6 +96,22 @@ final class DnsRecords
     }
 
     /**
+     * Adopt a foreign record: stamp the ownership marker onto its comment so
+     * future syncs treat it as managed. Only the `comment` is touched — any
+     * human note already there is preserved.
+     */
+    public function claim(Record $record): void
+    {
+        if ($record->id === null) {
+            throw new ApiException('Cannot adopt a record without a Cloudflare id.');
+        }
+
+        $this->client->request('PATCH', $this->base() . '/' . $record->id, [
+            'comment' => Ownership::stamp($record->comment),
+        ]);
+    }
+
+    /**
      * Delete a record (HTTP DELETE).
      */
     public function delete(Record $record): void
@@ -108,7 +128,8 @@ final class DnsRecords
      *
      * Order follows Cloudflare's own batch semantics — deletes, then updates,
      * then creates — which avoids transient "record will conflict" errors
-     * (e.g. removing an A record so a CNAME can take its place).
+     * (e.g. removing an A record so a CNAME can take its place). Adoptions run
+     * last; they only stamp a comment.
      *
      * Each action is independent: a failure is recorded in the report and the
      * remaining actions still run.
@@ -141,6 +162,15 @@ final class DnsRecords
                 $report->created++;
             } catch (ApiException $e) {
                 $report->addError('create', $record->name, $e);
+            }
+        }
+
+        foreach ($plan->adopted as $record) {
+            try {
+                $this->claim($record);
+                $report->adopted++;
+            } catch (ApiException $e) {
+                $report->addError('adopt', $record->name, $e);
             }
         }
 

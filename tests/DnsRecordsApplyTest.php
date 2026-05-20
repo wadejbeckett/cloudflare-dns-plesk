@@ -81,6 +81,9 @@ final class DnsRecordsApplyTest extends TestCase
         $body = json_decode((string) $request['body'], true);
         self::assertIsArray($body);
         self::assertArrayNotHasKey('proxied', $body);
+        // Every created record is stamped as managed by this extension.
+        self::assertArrayHasKey('comment', $body);
+        self::assertStringContainsString('plesk-dns-sync', (string) $body['comment']);
     }
 
     public function testAuthorizationHeaderCarriesBearerToken(): void

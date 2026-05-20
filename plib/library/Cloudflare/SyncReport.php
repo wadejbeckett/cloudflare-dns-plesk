@@ -15,6 +15,7 @@ final class SyncReport
     public int $created = 0;
     public int $updated = 0;
     public int $deleted = 0;
+    public int $adopted = 0;
 
     /** @var Record[] records created in Cloudflare this run — each carries its new id */
     public array $createdRecords = [];
@@ -39,10 +40,11 @@ final class SyncReport
     public function summary(): string
     {
         $summary = sprintf(
-            '%d created, %d updated, %d deleted',
+            '%d created, %d updated, %d deleted, %d adopted',
             $this->created,
             $this->updated,
-            $this->deleted
+            $this->deleted,
+            $this->adopted
         );
 
         if ($this->hasErrors()) {

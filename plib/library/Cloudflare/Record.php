@@ -8,8 +8,9 @@ namespace Noiz\CloudflareDns\Cloudflare;
  * An immutable DNS record value object.
  *
  * The same class represents both:
- *  - "desired" records, coming from the control panel — here `id`, `proxied`
- *    and `proxiable` are unknown (the panel has no Cloudflare concepts); and
+ *  - "desired" records, coming from the control panel — here `id`, `proxied`,
+ *    `proxiable` and `comment` are unknown (the panel has no Cloudflare
+ *    concepts); and
  *  - "existing" records, coming from Cloudflare — fully populated.
  */
 final class Record
@@ -23,6 +24,9 @@ final class Record
     public ?bool $proxied;
     public bool $proxiable;
 
+    /** The Cloudflare record comment — carries the ownership marker. */
+    public ?string $comment;
+
     public function __construct(
         string $type,
         string $name,
@@ -31,7 +35,8 @@ final class Record
         ?int $priority = null,
         ?string $id = null,
         ?bool $proxied = null,
-        bool $proxiable = false
+        bool $proxiable = false,
+        ?string $comment = null
     ) {
         $this->type = strtoupper(trim($type));
         $this->name = self::normaliseName($name);
@@ -41,6 +46,7 @@ final class Record
         $this->id = $id;
         $this->proxied = $proxied;
         $this->proxiable = $proxiable;
+        $this->comment = $comment;
     }
 
     /**
@@ -58,7 +64,8 @@ final class Record
             isset($row['priority']) ? (int) $row['priority'] : null,
             isset($row['id']) ? (string) $row['id'] : null,
             array_key_exists('proxied', $row) ? (bool) $row['proxied'] : null,
-            (bool) ($row['proxiable'] ?? false)
+            (bool) ($row['proxiable'] ?? false),
+            (isset($row['comment']) && $row['comment'] !== null) ? (string) $row['comment'] : null
         );
     }
 
