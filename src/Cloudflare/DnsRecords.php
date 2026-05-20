@@ -1,0 +1,154 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Noiz\CloudflareDns\Cloudflare;
+
+/**
+ * DNS record operations for a single Cloudflare zone, plus the executor that
+ * applies a {@see SyncPlan}.
+ */
+final class DnsRecords
+{
+    private Client $client;
+    private string $zoneId;
+
+    public function __construct(Client $client, string $zoneId)
+    {
+        if (trim($zoneId) === '') {
+            throw new ApiException('A Cloudflare zone id is required.');
+        }
+
+        $this->client = $client;
+        $this->zoneId = $zoneId;
+    }
+
+    /**
+     * List every DNS record in the zone.
+     *
+     * @return Record[]
+     */
+    public function listAll(): array
+    {
+        $rows = $this->client->requestAll($this->base());
+
+        $records = [];
+        foreach ($rows as $row) {
+            if (is_array($row)) {
+                $records[] = Record::fromCloudflare($row);
+            }
+        }
+
+        return $records;
+    }
+
+    /**
+     * Create a record (HTTP POST).
+     *
+     * `proxied` is intentionally NOT sent. The panel has no proxy concept, so a
+     * new record defaults to DNS-only (grey cloud); an operator can switch the
+     * orange cloud on in Cloudflare afterwards and later syncs will preserve it.
+     */
+    public function create(Record $record): Record
+    {
+        $payload = [
+            'type' => $record->type,
+            'name' => $record->name,
+            'content' => $record->content,
+            'ttl' => $record->ttl,
+        ];
+        if ($record->priority !== null) {
+            $payload['priority'] = $record->priority;
+        }
+
+        $result = $this->client->request('POST', $this->base(), $payload);
+        if (!is_array($result)) {
+            throw new ApiException('Unexpected response creating record "' . $record->name . '".');
+        }
+
+        return Record::fromCloudflare($result);
+    }
+
+    /**
+     * Update a record (HTTP PATCH — a partial update).
+     *
+     * PATCH only changes the fields supplied; every omitted field — crucially
+     * `proxied`, plus `comment` and `tags` — keeps its current Cloudflare
+     * value. This is what makes the sync non-destructive.
+     */
+    public function update(RecordUpdate $update): Record
+    {
+        $id = $update->existing->id;
+        if ($id === null) {
+            throw new ApiException('Cannot update a record without a Cloudflare id.');
+        }
+
+        $result = $this->client->request('PATCH', $this->base() . '/' . $id, $update->patchPayload());
+        if (!is_array($result)) {
+            throw new ApiException('Unexpected response updating record "' . $update->existing->name . '".');
+        }
+
+        return Record::fromCloudflare($result);
+    }
+
+    /**
+     * Delete a record (HTTP DELETE).
+     */
+    public function delete(Record $record): void
+    {
+        if ($record->id === null) {
+            throw new ApiException('Cannot delete a record without a Cloudflare id.');
+        }
+
+        $this->client->request('DELETE', $this->base() . '/' . $record->id);
+    }
+
+    /**
+     * Apply a sync plan.
+     *
+     * Order follows Cloudflare's own batch semantics — deletes, then updates,
+     * then creates — which avoids transient "record will conflict" errors
+     * (e.g. removing an A record so a CNAME can take its place).
+     *
+     * Each action is independent: a failure is recorded in the report and the
+     * remaining actions still run.
+     */
+    public function apply(SyncPlan $plan): SyncReport
+    {
+        $report = new SyncReport();
+
+        foreach ($plan->deletes as $record) {
+            try {
+                $this->delete($record);
+                $report->deleted++;
+            } catch (ApiException $e) {
+                $report->addError('delete', $record->name, $e);
+            }
+        }
+
+        foreach ($plan->updates as $update) {
+            try {
+                $this->update($update);
+                $report->updated++;
+            } catch (ApiException $e) {
+                $report->addError('update', $update->existing->name, $e);
+            }
+        }
+
+        foreach ($plan->creates as $record) {
+            try {
+                $this->create($record);
+                $report->created++;
+            } catch (ApiException $e) {
+                $report->addError('create', $record->name, $e);
+            }
+        }
+
+        return $report;
+    }
+
+    private function base(): string
+    {
+        return 'zones/' . $this->zoneId . '/dns_records';
+    }
+}
