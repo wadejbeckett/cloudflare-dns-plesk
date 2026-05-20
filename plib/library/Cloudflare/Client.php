@@ -131,4 +131,20 @@ final class Client
 
         return $rows;
     }
+
+    /**
+     * Verify that the API token is valid and active.
+     *
+     * Returns false (rather than throwing) when Cloudflare rejects the token.
+     */
+    public function verifyToken(): bool
+    {
+        try {
+            $this->request('GET', 'user/tokens/verify');
+
+            return true;
+        } catch (ApiException $e) {
+            return false;
+        }
+    }
 }

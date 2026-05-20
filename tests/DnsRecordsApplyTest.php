@@ -143,4 +143,20 @@ final class DnsRecordsApplyTest extends TestCase
         self::assertCount(1, $report->errors);
         self::assertSame('update', $report->errors[0]['action']);
     }
+
+    public function testVerifyTokenReturnsTrueForValidToken(): void
+    {
+        $transport = new FakeTransport();
+        $transport->queue(200, ['success' => true, 'result' => ['status' => 'active']]);
+
+        self::assertTrue((new Client('valid-token', $transport))->verifyToken());
+    }
+
+    public function testVerifyTokenReturnsFalseForInvalidToken(): void
+    {
+        $transport = new FakeTransport();
+        $transport->queue(401, ['success' => false, 'errors' => [['code' => 1000, 'message' => 'Invalid API Token']]]);
+
+        self::assertFalse((new Client('bad-token', $transport))->verifyToken());
+    }
 }

@@ -1,0 +1,16 @@
+<?php /** @var pm_View $this */ ?>
+<p>
+    Synchronise your Plesk DNS zones to Cloudflare. Plesk stays the master:
+    record changes are pushed to Cloudflare without resetting proxy
+    (orange-cloud) state, comments, or page-rule associations.
+</p>
+
+<?php echo $this->form; ?>
+
+<h3>Manual resync</h3>
+<p>
+    Push every Plesk DNS zone to Cloudflare now. Useful for the first sync of
+    domains that existed before this extension was installed.
+</p>
+
+<?php echo $this->resyncForm; ?>

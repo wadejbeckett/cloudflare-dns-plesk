@@ -42,6 +42,10 @@ if ($token === '') {
 }
 $accountId = trim((string) pm_Settings::get('account_id'));
 
+// "Auto-create zones for new domains" — when off, only zones that already
+// exist in Cloudflare are synced; a brand-new domain is not created there.
+$autoCreate = ((string) pm_Settings::get('autosync_new_domains', '1')) !== '';
+
 $input = (string) file_get_contents('php://stdin');
 if (trim($input) === '') {
     exit(0);
@@ -73,12 +77,12 @@ foreach ($parsed['operations'] as $operation) {
             continue;
         }
 
-        $zoneId = $accountId !== ''
+        $zoneId = ($autoCreate && $accountId !== '')
             ? $zones->ensure($zoneName, $accountId)
             : $zones->findId($zoneName);
 
         if ($zoneId === null) {
-            cfdns_log("$zoneName is not in Cloudflare and no account id is configured — skipping.");
+            cfdns_log("$zoneName is not in Cloudflare (auto-create off or no account id) — skipping.");
             $hadError = true;
             continue;
         }
