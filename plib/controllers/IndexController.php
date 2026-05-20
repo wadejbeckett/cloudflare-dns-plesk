@@ -41,15 +41,7 @@ class IndexController extends pm_Controller_Action
 
         $this->showConnectionStatus();
 
-        $resyncForm = new pm_Form_Simple();
-        $resyncForm->setAction(pm_Context::getBaseUrl() . 'index/resync');
-        $resyncForm->addControlButtons([
-            'sendTitle' => 'Resync all domains',
-            'cancelHidden' => true,
-        ]);
-
         $this->view->form = $form;
-        $this->view->resyncForm = $resyncForm;
     }
 
     /**
