@@ -16,7 +16,7 @@ One-way, non-destructive Plesk → Cloudflare DNS sync.
 - [x] Proxy-state preservation — verified end to end on a real domain
 - [x] Per-domain activation — sync is opt-in per domain, with an optional
       auto-enable for newly added domains
-- [ ] Full manual test pass — see [TEST-PLAN.md](TEST-PLAN.md)
+- [x] Full manual test pass — all 23 scenarios in [TEST-PLAN.md](TEST-PLAN.md)
 - [ ] Install / usage documentation in the README
 - [ ] Tag the release
 

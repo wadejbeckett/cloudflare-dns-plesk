@@ -8,17 +8,17 @@ test account.
 
 **Legend:** ✅ passed · ⬜ not yet run · ⚠️ issue found
 
-**Run 2026-05-21:** 15 of 19 remaining scenarios passed; the 4 zone-lifecycle /
-uninstall scenarios (1.2–1.4, 5.7) are destructive and run last.
+**Run 2026-05-21:** all 23 scenarios passed ✅ — end to end against the dev
+Plesk box and a live Cloudflare zone.
 
 ## 1. Zone lifecycle
 
 | # | Scenario | Expected | Status |
 |---|---|---|---|
 | 1.1 | Add a domain in Plesk | Cloudflare zone auto-created; all records synced, each stamped `[plesk-dns-sync]` | ✅ |
-| 1.2 | Remove the domain in Plesk | Cloudflare zone left intact (conservative, by design) | ⬜ |
-| 1.3 | Remove then re-add the domain in Plesk | Existing CF zone re-adopted; records reconciled; no duplicates | ⬜ |
-| 1.4 | Add a domain whose zone already exists in Cloudflare | Zone reused (not duplicated); identical records adopted | ⬜ |
+| 1.2 | Remove the domain in Plesk | Cloudflare zone left intact (conservative, by design) | ✅ |
+| 1.3 | Remove then re-add the domain in Plesk | Existing CF zone re-adopted; records reconciled; no duplicates | ✅ |
+| 1.4 | Add a domain whose zone already exists in Cloudflare | Zone reused (not duplicated); identical records adopted | ✅ |
 
 ## 2. Record operations
 
@@ -57,4 +57,4 @@ uninstall scenarios (1.2–1.4, 5.7) are destructive and run last.
 | 5.4 | Issue a Let's Encrypt cert (`_acme-challenge` TXT) | The ACME TXT syncs; an existing foreign `_acme-challenge` is untouched | ✅ |
 | 5.5 | Invalid API token configured | Handler fails gracefully (logged, non-zero exit); Plesk DNS not broken | ✅ |
 | 5.6 | Cloudflare unreachable during a change | Graceful failure, logged, recoverable on next sync | ✅ |
-| 5.7 | Uninstall the extension | Custom DNS backend deregistered; Plesk DNS back to normal | ⬜ |
+| 5.7 | Uninstall the extension | Custom DNS backend deregistered; Plesk DNS back to normal | ✅ |
