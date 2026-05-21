@@ -6,3 +6,24 @@
 </p>
 
 <?php echo $this->form; ?>
+
+<script type="text/javascript">
+// The API token field is rendered disabled once a token is saved, so the
+// browser cannot autofill it and an unrelated save cannot overwrite the
+// stored token. Ticking "Change the API token" unlocks it for a deliberate
+// edit and clears any value the browser may have pre-filled.
+(function () {
+    var checkbox = document.getElementsByName('change_token')[0];
+    var field = document.getElementsByName('api_token')[0];
+    if (!checkbox || !field) {
+        return;
+    }
+    checkbox.addEventListener('change', function () {
+        field.disabled = !checkbox.checked;
+        if (checkbox.checked) {
+            field.value = '';
+            field.focus();
+        }
+    });
+})();
+</script>

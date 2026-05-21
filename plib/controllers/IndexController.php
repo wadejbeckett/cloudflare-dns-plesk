@@ -73,10 +73,30 @@ class IndexController extends pm_Controller_Action
     {
         $form = new pm_Form_Simple();
 
+        $hasToken = ((string) pm_Settings::get('api_token')) !== '';
+
         $form->addElement('password', 'api_token', [
             'label' => 'Cloudflare API token',
-            'description' => 'A scoped token with Zone DNS Edit and Zone Read permissions. Leave blank to keep the current token.',
+            'description' => $hasToken
+                ? 'A token is saved. To replace it, tick "Change the API token" below, then enter the new one.'
+                : 'A scoped token with Zone DNS Edit and Zone Read permissions.',
+            'autocomplete' => 'new-password',
         ]);
+
+        if ($hasToken) {
+            // Lock the field once a token is stored. A disabled input is not
+            // autofilled by the browser and is not submitted, so a stray
+            // autofill can never silently overwrite a working token. The
+            // checkbox re-enables it — see views/scripts/index/index.phtml.
+            $tokenField = $form->getElement('api_token');
+            $tokenField->setAttrib('disabled', 'disabled');
+            $tokenField->setAttrib('placeholder', 'token saved — locked');
+
+            $form->addElement('checkbox', 'change_token', [
+                'label' => 'Change the API token',
+                'description' => 'Tick to unlock the field above and enter a new token.',
+            ]);
+        }
         $form->addElement('text', 'account_id', [
             'label' => 'Cloudflare account ID',
             'value' => pm_Settings::get('account_id'),
@@ -128,13 +148,26 @@ class IndexController extends pm_Controller_Action
 
     private function saveSettings($form)
     {
-        $token = trim((string) $form->getValue('api_token'));
-        if ($token === '') {
-            // Blank means "keep the current token".
-            $token = (string) pm_Settings::get('api_token');
+        $storedToken = (string) pm_Settings::get('api_token');
+
+        // Only accept a new token when the admin explicitly asked to change it.
+        // This stops a browser autofill in the token field from silently
+        // overwriting a working token on an otherwise unrelated save.
+        $changeToken = $form->getElement('change_token') !== null
+            ? (bool) $form->getValue('change_token')
+            : ($storedToken === '');
+
+        $token = $storedToken;
+        if ($changeToken) {
+            $entered = trim((string) $form->getValue('api_token'));
+            if ($entered !== '') {
+                $token = $entered;
+            }
         }
 
-        if ($token !== '' && !(new Client($token))->verifyToken()) {
+        // Verify only when the token actually changes — saving the domain list
+        // must not depend on, or be blocked by, a Cloudflare round-trip.
+        if ($token !== $storedToken && $token !== '' && !(new Client($token))->verifyToken()) {
             throw new pm_Exception('That Cloudflare API token could not be verified — settings were not saved.');
         }
 
