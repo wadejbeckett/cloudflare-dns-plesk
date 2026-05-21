@@ -37,7 +37,7 @@
 <table class="cfdns-domains">
     <tbody>
     <?php foreach ($this->domains as $d): ?>
-        <tr data-domain="<?php echo htmlspecialchars($d['name'], ENT_QUOTES); ?>">
+        <tr data-domain="<?php echo htmlspecialchars($d['name'], ENT_QUOTES); ?>" data-pending="<?php echo $d['pending'] ? '1' : '0'; ?>">
             <td class="cfdns-domain-name"><?php echo htmlspecialchars($d['name']); ?></td>
             <td>
                 <label class="cfdns-switch">
@@ -45,7 +45,9 @@
                     <span class="cfdns-slider"></span>
                 </label>
             </td>
-            <td class="cfdns-status cfdns-status-<?php echo $d['status']['class']; ?>"><?php echo htmlspecialchars($d['status']['text']); ?></td>
+            <td class="cfdns-status cfdns-status-<?php echo $d['pending'] ? 'muted' : $d['status']['class']; ?>"><?php
+                echo htmlspecialchars($d['pending'] ? 'Syncing…' : $d['status']['text']);
+            ?></td>
         </tr>
     <?php endforeach; ?>
     </tbody>
@@ -82,6 +84,7 @@
     // --- Per-domain + auto-enable toggles (instant, AJAX) -----------------
     var toggleDomainUrl = <?php echo json_encode($this->toggleDomainUrl); ?>;
     var toggleAutoenableUrl = <?php echo json_encode($this->toggleAutoenableUrl); ?>;
+    var domainStatusUrl = <?php echo json_encode($this->domainStatusUrl); ?>;
 
     function post(url, data) {
         var token = document.getElementById('form_forgery_protection_token');
@@ -102,13 +105,44 @@
 
     function setStatus(cell, status) {
         cell.textContent = status.text;
-        cell.className = 'cfdns-status cfdns-status-' + status.class;
+        cell.className = 'cfdns-status cfdns-status-' + status['class'];
+    }
+
+    // Poll a domain's status while its background sync runs.
+    function pollStatus(row) {
+        var cell = row.querySelector('.cfdns-status');
+        var domain = row.getAttribute('data-domain');
+        var tries = 0;
+        cell.textContent = 'Syncing…';
+        cell.className = 'cfdns-status cfdns-status-muted';
+        (function tick() {
+            tries++;
+            fetch(domainStatusUrl + '?domain=' + encodeURIComponent(domain), {
+                credentials: 'same-origin',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                if (res && res.success && !res.pending) {
+                    setStatus(cell, res.status);
+                } else if (tries < 15) {
+                    setTimeout(tick, 2000);
+                } else {
+                    setStatus(cell, (res && res.status) ? res.status
+                        : { text: 'Enabled — sync status unknown', 'class': 'muted' });
+                }
+            })
+            .catch(function () {
+                if (tries < 15) { setTimeout(tick, 2000); }
+            });
+        })();
     }
 
     var rows = document.querySelectorAll('.cfdns-domains tr[data-domain]');
     Array.prototype.forEach.call(rows, function (row) {
         var checkbox = row.querySelector('.cfdns-domain-toggle');
         var cell = row.querySelector('.cfdns-status');
+
         checkbox.addEventListener('change', function () {
             var on = checkbox.checked;
             checkbox.disabled = true;
@@ -119,7 +153,11 @@
                     if (!res || !res.success) {
                         throw new Error(res && res.message ? res.message : 'Request failed');
                     }
-                    setStatus(cell, res.status);
+                    if (res.pending) {
+                        pollStatus(row);
+                    } else {
+                        setStatus(cell, res.status);
+                    }
                 })
                 .catch(function (err) {
                     checkbox.checked = !on;
@@ -127,6 +165,11 @@
                 })
                 .then(function () { checkbox.disabled = false; });
         });
+
+        // A domain already mid-sync when the page loaded — keep polling.
+        if (row.getAttribute('data-pending') === '1') {
+            pollStatus(row);
+        }
     });
 
     var autoToggle = document.getElementById('cfdns-autoenable-toggle');

@@ -52,11 +52,13 @@ class IndexController extends pm_Controller_Action
         $this->view->autoEnable = $this->isAutoEnabled();
         $this->view->toggleDomainUrl = pm_Context::getActionUrl('index', 'toggle-domain');
         $this->view->toggleAutoenableUrl = pm_Context::getActionUrl('index', 'toggle-autoenable');
+        $this->view->domainStatusUrl = pm_Context::getActionUrl('index', 'domain-status');
     }
 
     /**
      * AJAX: activate or deactivate a single domain. Activating it also pushes
-     * the domain to Cloudflare immediately.
+     * the domain to Cloudflare; the sync runs in the background, so the
+     * response reports "pending" and the page polls domainStatusAction.
      */
     public function toggleDomainAction()
     {
@@ -87,13 +89,16 @@ class IndexController extends pm_Controller_Action
             $this->_helper->json([
                 'success' => true,
                 'enabled' => false,
+                'pending' => false,
                 'status' => $this->describeStatus(false, null),
             ]);
             return;
         }
 
-        // Activating a domain syncs it now: re-push every zone through the
-        // custom DNS backend, which records a per-domain status as it goes.
+        // Activating syncs the domain now. The custom DNS backend runs the
+        // sync in the background and records a per-domain status when done —
+        // clear any stale status so the page can poll for the fresh result.
+        pm_Settings::set('status_' . $domain, '');
         try {
             pm_ApiCli::call('dns', ['--sync-all-zones']);
         } catch (Exception $e) {
@@ -104,10 +109,26 @@ class IndexController extends pm_Controller_Action
             ]));
         }
 
+        $status = $this->getDomainStatus($domain);
         $this->_helper->json([
             'success' => true,
             'enabled' => true,
-            'status' => $this->describeStatus(true, $this->getDomainStatus($domain)),
+            'pending' => $status === null,
+            'status' => $this->describeStatus(true, $status),
+        ]);
+    }
+
+    /** AJAX: report a domain's current sync status (polled while a sync runs). */
+    public function domainStatusAction()
+    {
+        $domain = trim((string) $this->getRequest()->getParam('domain'));
+        $enabled = in_array($domain, $this->getEnabledDomains(), true);
+        $status = $this->getDomainStatus($domain);
+
+        $this->_helper->json([
+            'success' => true,
+            'pending' => $enabled && $status === null,
+            'status' => $this->describeStatus($enabled, $status),
         ]);
     }
 
@@ -223,10 +244,12 @@ class IndexController extends pm_Controller_Action
         $rows = [];
         foreach ($this->listDomainNames() as $name) {
             $isEnabled = in_array($name, $enabled, true);
+            $status = $this->getDomainStatus($name);
             $rows[] = [
                 'name' => $name,
                 'enabled' => $isEnabled,
-                'status' => $this->describeStatus($isEnabled, $this->getDomainStatus($name)),
+                'pending' => $isEnabled && $status === null,
+                'status' => $this->describeStatus($isEnabled, $status),
             ];
         }
         return $rows;
