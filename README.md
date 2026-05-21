@@ -1,74 +1,156 @@
-# cloudflare-dns-plesk
+# Cloudflare DNS Sync for Plesk
 
-A one-way Cloudflare DNS sync extension for Plesk.
+One-way, **non-destructive** DNS synchronisation from Plesk to Cloudflare.
 
-It mirrors the DNS zones of your Plesk subscriptions into Cloudflare: Plesk is
-the master, Cloudflare is the slave. You manage DNS in Plesk as normal, and the
-records flow to Cloudflare automatically.
+Plesk is the master, Cloudflare is the slave: you manage DNS in Plesk as
+normal, and every change to an activated domain flows to Cloudflare
+automatically — without ever resetting the things Cloudflare owns.
 
 ## What makes it different
-
-The sync is **non-destructive**.
 
 A Cloudflare record carries settings a control panel has no concept of — the
 proxy (orange-cloud) toggle, per-record comments, tags, page-rule
 associations. This extension treats every one of those as Cloudflare-owned and
 never overwrites them:
 
-- **Updates use HTTP `PATCH`** — a partial update. Only the fields Plesk
-  actually owns (content, TTL) are written; the proxy flag and everything else
-  are left exactly as they are.
-- **The sync engine diffs** the panel against the live Cloudflare zone and
-  prefers *updating* a record over delete-and-recreate — a recreated record
-  would lose its proxy state.
-- **Cloudflare-native records can be left alone** — records created directly in
-  Cloudflare do not have to be pruned.
-- **`SOA` and `NS` records are skipped** — Cloudflare manages those itself.
+- **Updates use HTTP `PATCH`** — a partial update. Only the fields Plesk owns
+  (content, TTL) are written; the proxy flag and everything else are left
+  exactly as they are.
+- **The diff engine prefers *updating* a record** over delete-and-recreate — a
+  recreated record would lose its proxy state.
+- **Foreign records are never touched** — anything created directly in
+  Cloudflare (or by another service) is left completely alone.
+- **`SOA` and `NS` are skipped** — Cloudflare manages those itself.
 
 The practical result: switch the orange cloud on for a record in Cloudflare,
-and it stays on through every subsequent Plesk-side DNS change.
+and it stays on through every subsequent Plesk-side DNS change. This is the bug
+([EXTPLESK-13681](https://github.com/wadejbeckett/cloudflare-dns-plesk)) in the
+official Cloudflare extension that this project exists to avoid.
 
-## Status
+## Requirements
 
-Early development.
+- Plesk Obsidian **18.0.55** or newer
+- A Cloudflare account
+- PHP 8.0+ with `ext-curl` and `ext-json` (bundled with Plesk)
 
-- ✅ **Cloudflare sync core** — API client + diff engine — complete, with a
-  PHPUnit test suite.
-- 🔜 **Plesk extension wrapper** — `meta.xml`, the custom DNS backend handler,
-  the settings UI, install scripts.
-- 🔜 A DirectAdmin adapter, reusing the same core.
+## Installation
+
+The extension is not in the Plesk Extensions Catalog — install the package
+directly.
+
+1. **Build the package** from a checkout of this repository:
+
+   ```sh
+   zip -r cloudflare-dns-sync.zip meta.xml plib htdocs
+   ```
+
+   (or download a prebuilt `cloudflare-dns-sync.zip` from the
+   [Releases](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases) page).
+
+2. **Install it** — in Plesk: **Extensions → My Extensions → Upload Extension**,
+   choose the zip. Or from the command line:
+
+   ```sh
+   plesk bin extension --install /path/to/cloudflare-dns-sync.zip
+   ```
+
+> **One DNS backend at a time.** The extension registers itself as Plesk's
+> custom DNS backend, and Plesk has a single slot for that. Do not run it
+> alongside the official "DNS Integration for Cloudflare" extension.
+
+## Setup
+
+### 1. Create a Cloudflare API token
+
+Use a scoped **API token** — *not* the Global API Key.
+
+In Cloudflare: **My Profile → API Tokens → Create Token → Create Custom Token**.
+
+- **Permissions:**
+  - `Zone` · `DNS` · `Edit`
+  - `Zone` · `Zone` · `Edit` — lets the extension create a Cloudflare zone the
+    first time you activate a domain (`Edit` includes `Read`).
+- **Zone Resources:** `Include` · `All zones from an account` · *your account*.
+  Creating new zones cannot be limited to specific existing zones.
+
+### 2. Find your Cloudflare account ID
+
+In the Cloudflare dashboard, open your account — the **Account ID** is shown on
+the account home page (and in the dashboard URL).
+
+### 3. Configure the extension
+
+Open **Extensions → Cloudflare DNS Sync**, paste the API token and account ID,
+and **Save**. The page confirms with *"Connected to Cloudflare"*. Once a token
+is saved the field locks; tick **Change the API token** to replace it.
+
+## Usage
+
+The **Domains to sync** section lists every domain on the server, each with an
+on/off switch:
+
+- **Switch a domain on** — it is activated and pushed to Cloudflare
+  immediately; the row shows the result (`Synced — N records`). If the zone
+  does not exist in Cloudflare yet, it is created.
+- **Switch a domain off** — syncing stops. The Cloudflare zone is left intact.
+- **Auto-enable new domains** — when on, a domain added in Plesk starts syncing
+  automatically. Off by default, so nothing syncs until you choose it to.
+
+After a domain is activated, every DNS change you make in Plesk is pushed to
+Cloudflare automatically.
+
+## Good to know
+
+- **New records are created grey** (DNS-only). The orange cloud is yours to
+  manage in Cloudflare — the extension never turns it on or off.
+- **Record types synced:** `A`, `AAAA`, `CNAME`, `MX`, `TXT`. `SOA`/`NS` are
+  left to Cloudflare; `SRV`/`CAA` are not synced yet (see the roadmap).
+- **Removing a domain in Plesk** leaves its Cloudflare zone in place — nothing
+  is deleted.
+- **Nameserver delegation** at your registrar is still your job. The extension
+  syncs records into Cloudflare; it does not point your domain's nameservers
+  there.
+- Each sync is logged to `<extension-var-dir>/sync.log` on the server.
+
+## How it works
+
+Plesk routes every DNS zone change through a registered *custom DNS backend*.
+This extension's backend translates the change, diffs the desired zone against
+the live Cloudflare zone, and applies the minimum set of `PATCH` / `POST` /
+`DELETE` calls. Ownership is tracked by stamping a marker (`[plesk-dns-sync]`)
+into each managed record's Cloudflare comment — so the extension only ever
+touches records it created, and the marker survives a reinstall.
 
 ## Repository layout
 
 ```
-src/Cloudflare/      Panel-agnostic Cloudflare API client + sync engine — the
-                     reusable core (a DirectAdmin adapter can build on it)
-tests/               PHPUnit unit tests (no network required)
+meta.xml                       Plesk extension manifest
+htdocs/                        Web entry point
+plib/controllers/              Settings-page controller
+plib/views/                    Settings-page view
+plib/scripts/                  DNS backend handler + install/uninstall hooks
+plib/library/Cloudflare/       Panel-agnostic Cloudflare client + diff engine
+plib/library/PleskDns/         Plesk payload translator
+tests/                         PHPUnit unit tests (no network required)
 ```
 
-## The core
+The `Cloudflare\` core has **no Composer runtime dependencies** and no Plesk
+coupling — a DirectAdmin adapter can reuse it as-is.
 
-| Class | Responsibility |
-|---|---|
-| `Cloudflare\Client` | HTTP transport, Bearer auth, JSON, retries, pagination |
-| `Cloudflare\Zones` | Look up / create Cloudflare zones |
-| `Cloudflare\DnsRecords` | List / create / `PATCH` / delete records; apply a plan |
-| `Cloudflare\Record` | Immutable DNS record value object |
-| `Cloudflare\ZoneSync` | Pure diff engine → produces a `SyncPlan` |
-| `Cloudflare\SyncPlan` / `SyncReport` | The planned changes / the outcome |
-
-The runtime has **no Composer dependencies** — just PHP 8.0+ with `ext-curl`
-and `ext-json`.
-
-## Running the tests
+## Development
 
 ```sh
 composer install
 composer test
 ```
 
-The tests use a fake HTTP transport, so no Cloudflare account or network access
-is required.
+The tests use a fake HTTP transport, so no Cloudflare account or network
+access is required.
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md). Manual end-to-end coverage is tracked in
+[TEST-PLAN.md](TEST-PLAN.md).
 
 ## Licence
 
