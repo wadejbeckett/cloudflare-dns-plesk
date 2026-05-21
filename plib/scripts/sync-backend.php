@@ -34,6 +34,19 @@ function cfdns_log(string $message): void
     fwrite(STDOUT, 'cloudflare-dns-sync: ' . $message . "\n");
 }
 
+/** Domains the administrator has activated for syncing. */
+function cfdns_enabled_domains(): array
+{
+    $list = json_decode((string) pm_Settings::get('enabled_domains', '[]'), true);
+    return is_array($list) ? $list : [];
+}
+
+/** Persist the activation list. */
+function cfdns_save_enabled_domains(array $domains): void
+{
+    pm_Settings::set('enabled_domains', json_encode(array_values($domains)));
+}
+
 $token = trim((string) pm_Settings::get('api_token'));
 if ($token === '') {
     // Not configured yet — do nothing and let Plesk's own DNS proceed.
@@ -42,9 +55,11 @@ if ($token === '') {
 }
 $accountId = trim((string) pm_Settings::get('account_id'));
 
-// "Auto-create zones for new domains" — when off, only zones that already
-// exist in Cloudflare are synced; a brand-new domain is not created there.
-$autoCreate = ((string) pm_Settings::get('autosync_new_domains', '1')) !== '';
+// "Auto-enable new domains" — when on, a domain that is not on the activation
+// list is added to it (and synced) the first time Plesk reports a change for
+// it. When off (default), only already-activated domains are ever synced.
+$autoEnable = ((string) pm_Settings::get('auto_enable_new_domains', '')) !== '';
+$enabled = cfdns_enabled_domains();
 
 $input = (string) file_get_contents('php://stdin');
 if (trim($input) === '') {
@@ -68,21 +83,40 @@ $hadError = false;
 
 foreach ($parsed['operations'] as $operation) {
     $zoneName = $operation->zoneName;
+    $isEnabled = in_array($zoneName, $enabled, true);
+
+    // Per-domain activation gate: only domains the administrator has activated
+    // are synced. Every other domain on the server is left entirely alone.
+    if (!$isEnabled) {
+        if ($operation->command === ZoneOperation::DELETE) {
+            continue; // Not synced — nothing to undo.
+        }
+        if (!$autoEnable) {
+            cfdns_log("$zoneName is not activated for sync — skipping.");
+            continue;
+        }
+        $enabled[] = $zoneName;
+        cfdns_save_enabled_domains($enabled);
+        cfdns_log("$zoneName auto-enabled for sync.");
+    }
 
     try {
         if ($operation->command === ZoneOperation::DELETE) {
             // Deliberately conservative: a domain removed in Plesk does NOT
-            // delete the Cloudflare zone. It is left intact.
+            // delete the Cloudflare zone. It is left intact. Drop it from the
+            // activation list — if re-added it follows the auto-enable setting.
             cfdns_log("$zoneName removed in Plesk — Cloudflare zone left intact.");
+            $enabled = array_values(array_diff($enabled, [$zoneName]));
+            cfdns_save_enabled_domains($enabled);
             continue;
         }
 
-        $zoneId = ($autoCreate && $accountId !== '')
+        $zoneId = ($accountId !== '')
             ? $zones->ensure($zoneName, $accountId)
             : $zones->findId($zoneName);
 
         if ($zoneId === null) {
-            cfdns_log("$zoneName is not in Cloudflare (auto-create off or no account id) — skipping.");
+            cfdns_log("$zoneName is not in Cloudflare and no account ID is set — skipping.");
             $hadError = true;
             continue;
         }

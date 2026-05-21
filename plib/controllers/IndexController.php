@@ -5,8 +5,9 @@ use Noiz\CloudflareDns\Cloudflare\Client;
 /**
  * Admin settings page for the Cloudflare DNS Sync extension.
  *
- * Lets an administrator enter the Cloudflare API token and account ID, toggle
- * auto-creation of zones for new domains, and trigger a manual resync.
+ * Lets an administrator enter the Cloudflare API token and account ID, and
+ * choose which domains are synced to Cloudflare — per-domain activation, with
+ * an optional auto-enable for newly added domains.
  */
 class IndexController extends pm_Controller_Action
 {
@@ -40,6 +41,10 @@ class IndexController extends pm_Controller_Action
         }
 
         $this->showConnectionStatus();
+
+        if (!$this->listDomainNames()) {
+            $this->_status->addMessage('info', 'No domains on this server yet. Add a domain in Plesk, then return here to activate it for syncing.');
+        }
 
         $this->view->form = $form;
     }
@@ -75,19 +80,50 @@ class IndexController extends pm_Controller_Action
         $form->addElement('text', 'account_id', [
             'label' => 'Cloudflare account ID',
             'value' => pm_Settings::get('account_id'),
-            'description' => 'Required for the extension to create Cloudflare zones for new domains.',
+            'description' => 'Required so the extension can create Cloudflare zones for the domains you activate.',
         ]);
-        $form->addElement('checkbox', 'autosync_new_domains', [
-            'label' => 'Auto-create zones for new domains',
-            'checked' => ((string) pm_Settings::get('autosync_new_domains', '1')) !== '',
-            'description' => 'When enabled, a domain added in Plesk is created in Cloudflare automatically.',
+
+        $domains = $this->listDomainNames();
+        if ($domains) {
+            $enabled = array_values(array_intersect($this->getEnabledDomains(), $domains));
+            $form->addElement('multiCheckbox', 'enabled_domains', [
+                'label' => 'Domains to sync',
+                'multiOptions' => array_combine($domains, $domains),
+                'value' => $enabled,
+                'description' => 'Only the ticked domains are pushed to Cloudflare. Unticking a domain stops syncing it; its Cloudflare zone is left intact.',
+            ]);
+        }
+
+        $form->addElement('checkbox', 'auto_enable_new_domains', [
+            'label' => 'Auto-enable new domains',
+            'checked' => ((string) pm_Settings::get('auto_enable_new_domains', '')) !== '',
+            'description' => 'When on, a domain added in Plesk starts syncing automatically. When off (default), activate each domain in the list above.',
         ]);
+
         $form->addControlButtons([
             'sendTitle' => 'Save',
             'cancelLink' => pm_Context::getModulesListUrl(),
         ]);
 
         return $form;
+    }
+
+    /** All domain names on this server, sorted alphabetically. */
+    private function listDomainNames()
+    {
+        $names = [];
+        foreach (pm_Domain::getAllDomains() as $domain) {
+            $names[] = $domain->getName();
+        }
+        sort($names);
+        return $names;
+    }
+
+    /** The administrator's per-domain activation list. */
+    private function getEnabledDomains()
+    {
+        $list = json_decode((string) pm_Settings::get('enabled_domains', '[]'), true);
+        return is_array($list) ? $list : [];
     }
 
     private function saveSettings($form)
@@ -104,7 +140,12 @@ class IndexController extends pm_Controller_Action
 
         pm_Settings::set('api_token', $token);
         pm_Settings::set('account_id', trim((string) $form->getValue('account_id')));
-        pm_Settings::set('autosync_new_domains', $form->getValue('autosync_new_domains') ? '1' : '');
+        pm_Settings::set('auto_enable_new_domains', $form->getValue('auto_enable_new_domains') ? '1' : '');
+
+        if ($form->getElement('enabled_domains') !== null) {
+            $selected = array_values(array_unique(array_map('strval', (array) $form->getValue('enabled_domains'))));
+            pm_Settings::set('enabled_domains', json_encode($selected));
+        }
     }
 
     private function showConnectionStatus()

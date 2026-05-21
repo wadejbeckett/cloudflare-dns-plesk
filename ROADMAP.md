@@ -11,9 +11,11 @@ One-way, non-destructive Plesk → Cloudflare DNS sync.
 - [x] Cloudflare API client + diff engine (ownership-aware, `PATCH`-based)
 - [x] Plesk custom DNS backend handler + install/uninstall scripts
 - [x] Auto-create the Cloudflare zone when a domain is added in Plesk
-- [x] Settings page (API token, account ID, auto-create toggle)
+- [x] Settings page (API token, account ID, per-domain activation)
 - [x] Comment-marker ownership (`[plesk-dns-sync]`)
 - [x] Proxy-state preservation — verified end to end on a real domain
+- [x] Per-domain activation — sync is opt-in per domain, with an optional
+      auto-enable for newly added domains
 - [ ] Full manual test pass — see [TEST-PLAN.md](TEST-PLAN.md)
 - [ ] Install / usage documentation in the README
 - [ ] Tag the release
@@ -24,7 +26,6 @@ One-way, non-destructive Plesk → Cloudflare DNS sync.
       `pm_Form_Simple` forms on one page collide over a hardcoded button id)
 - [ ] Broader record-type support: `SRV`, `CAA` (today: A/AAAA/CNAME/MX/TXT)
 - [ ] Surface each domain's Cloudflare-assigned nameservers in the UI
-- [ ] Per-domain sync enable/disable
 
 ## Later
 
