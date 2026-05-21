@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Web entry point for the Cloudflare DNS Sync extension.
  *

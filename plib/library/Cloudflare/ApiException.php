@@ -6,50 +6,22 @@ namespace Noiz\CloudflareDns\Cloudflare;
 
 /**
  * Raised for any failure talking to the Cloudflare API, or for an error
- * envelope returned by it ("success": false).
+ * envelope it returns ("success": false).
  */
 class ApiException extends \RuntimeException
 {
+    /** The HTTP status that triggered the error, or 0 for a transport failure. */
     private int $httpStatus;
 
-    /** @var array<int,mixed> the raw Cloudflare "errors" array, if any */
-    private array $cloudflareErrors;
-
-    /**
-     * @param array<int,mixed> $cloudflareErrors
-     */
-    public function __construct(
-        string $message,
-        int $httpStatus = 0,
-        array $cloudflareErrors = [],
-        ?\Throwable $previous = null
-    ) {
+    public function __construct(string $message, int $httpStatus = 0, ?\Throwable $previous = null)
+    {
         parent::__construct($message, 0, $previous);
         $this->httpStatus = $httpStatus;
-        $this->cloudflareErrors = $cloudflareErrors;
     }
 
     public function httpStatus(): int
     {
         return $this->httpStatus;
-    }
-
-    /**
-     * @return array<int,mixed>
-     */
-    public function cloudflareErrors(): array
-    {
-        return $this->cloudflareErrors;
-    }
-
-    public function isRateLimited(): bool
-    {
-        return $this->httpStatus === 429;
-    }
-
-    public function isAuthError(): bool
-    {
-        return $this->httpStatus === 401 || $this->httpStatus === 403;
     }
 
     /**
@@ -75,6 +47,6 @@ class ApiException extends \RuntimeException
 
         $summary = $parts !== [] ? implode('; ', $parts) : 'HTTP ' . $httpStatus;
 
-        return new self('Cloudflare API error: ' . $summary, $httpStatus, $errors);
+        return new self('Cloudflare API error: ' . $summary, $httpStatus);
     }
 }

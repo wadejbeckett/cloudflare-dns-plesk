@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Noiz\CloudflareDns\PleskDns;
 
+use Noiz\CloudflareDns\Cloudflare\DnsName;
 use Noiz\CloudflareDns\Cloudflare\Record;
 
 /**
@@ -53,7 +54,7 @@ final class Payload
                 continue;
             }
 
-            $zoneName = self::normaliseName((string) ($zone['name'] ?? ''));
+            $zoneName = DnsName::normalise((string) ($zone['name'] ?? ''));
             if ($zoneName === '') {
                 continue;
             }
@@ -72,7 +73,7 @@ final class Payload
                     continue; // Cloudflare owns SOA / NS
                 }
                 if (!in_array($type, self::SUPPORTED_TYPES, true)) {
-                    $skipped[] = trim($type . ' ' . self::normaliseName((string) ($rr['host'] ?? '')));
+                    $skipped[] = trim($type . ' ' . DnsName::normalise((string) ($rr['host'] ?? '')));
                     continue;
                 }
 
@@ -94,7 +95,7 @@ final class Payload
      */
     private static function toRecord(array $rr, string $type, int $defaultTtl): Record
     {
-        $host = self::normaliseName((string) ($rr['host'] ?? ''));
+        $host = DnsName::normalise((string) ($rr['host'] ?? ''));
         $value = trim((string) ($rr['value'] ?? ''));
         $opt = trim((string) ($rr['opt'] ?? ''));
         $ttl = (int) ($rr['ttl'] ?? $defaultTtl);
@@ -108,10 +109,5 @@ final class Payload
         $priority = ($type === 'MX' && $opt !== '') ? (int) $opt : null;
 
         return new Record($type, $host, $value, $ttl, $priority);
-    }
-
-    private static function normaliseName(string $name): string
-    {
-        return strtolower(rtrim(trim($name), '.'));
     }
 }

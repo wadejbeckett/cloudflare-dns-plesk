@@ -14,9 +14,11 @@ namespace Noiz\CloudflareDns\Cloudflare;
  *
  * Ownership model
  * ---------------
- * Plesk's DNS backend gives no stable per-record identifier, so the extension
- * instead remembers the set of Cloudflare record IDs it has created (the
- * `managedIds`). Existing Cloudflare records are partitioned:
+ * Plesk's DNS backend gives no stable per-record identifier. Instead, every
+ * record this extension creates is stamped with an ownership marker in its
+ * Cloudflare comment; each sync re-derives the set of managed record IDs
+ * (`managedIds`) by reading those comments. Existing Cloudflare records are
+ * partitioned:
  *
  *  - **managed** — id is in `managedIds`: eligible for update / delete;
  *  - **foreign** — created by another service or by hand: NEVER modified or

@@ -42,7 +42,7 @@ final class Client
      *
      * @return mixed
      */
-    public function request(string $method, string $path, ?array $body = null, array $query = [])
+    public function request(string $method, string $path, ?array $body = null, array $query = []): mixed
     {
         return $this->raw($method, $path, $body, $query)['result'] ?? null;
     }

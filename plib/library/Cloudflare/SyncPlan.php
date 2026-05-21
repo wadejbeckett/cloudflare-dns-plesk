@@ -27,9 +27,9 @@ final class SyncPlan
     public array $ignored;
 
     /**
-     * Foreign records that exactly match a desired record: taken under
-     * management with no API call. The caller must add their ids to the
-     * managed-id store.
+     * Foreign records that exactly match a desired record: adopted rather than
+     * creating a duplicate. {@see DnsRecords::apply()} stamps the ownership
+     * marker onto each, so the next sync recognises them as managed.
      *
      * @var Record[]
      */

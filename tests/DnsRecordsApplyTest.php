@@ -38,7 +38,7 @@ final class DnsRecordsApplyTest extends TestCase
 
         $records = new DnsRecords(new Client('test-token', $transport), 'zone123');
 
-        $existing = new Record('A', 'www.example.com', '1.2.3.4', 1, null, 'r1', true, true);
+        $existing = new Record('A', 'www.example.com', '1.2.3.4', 1, null, 'r1', true);
         $desired = new Record('A', 'www.example.com', '9.9.9.9', 3600);
         $plan = new SyncPlan([], [new RecordUpdate($existing, $desired)], []);
 
@@ -127,11 +127,11 @@ final class DnsRecordsApplyTest extends TestCase
 
         $plan = new SyncPlan([], [
             new RecordUpdate(
-                new Record('A', 'a.example.com', '1.1.1.1', 1, null, 'r1', false, true),
+                new Record('A', 'a.example.com', '1.1.1.1', 1, null, 'r1', false),
                 new Record('A', 'a.example.com', '8.8.8.8', 3600)
             ),
             new RecordUpdate(
-                new Record('A', 'b.example.com', '2.2.2.2', 1, null, 'r2', false, true),
+                new Record('A', 'b.example.com', '2.2.2.2', 1, null, 'r2', false),
                 new Record('A', 'b.example.com', '9.9.9.9', 3600)
             ),
         ], []);

@@ -23,7 +23,7 @@ final class Zones
      */
     public function findByName(string $name): ?array
     {
-        $result = $this->client->request('GET', 'zones', null, ['name' => self::normalise($name)]);
+        $result = $this->client->request('GET', 'zones', null, ['name' => DnsName::normalise($name)]);
 
         if (is_array($result) && isset($result[0]) && is_array($result[0])) {
             return $result[0];
@@ -55,7 +55,7 @@ final class Zones
     public function create(string $name, string $accountId): array
     {
         $result = $this->client->request('POST', 'zones', [
-            'name' => self::normalise($name),
+            'name' => DnsName::normalise($name),
             'account' => ['id' => $accountId],
             'type' => 'full',
         ]);
@@ -85,10 +85,5 @@ final class Zones
         }
 
         return $id;
-    }
-
-    private static function normalise(string $name): string
-    {
-        return strtolower(rtrim(trim($name), '.'));
     }
 }

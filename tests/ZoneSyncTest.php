@@ -23,7 +23,7 @@ final class ZoneSyncTest extends TestCase
     /** A record as it exists in Cloudflare (has an id, proxy state, etc.). */
     private function cf(string $id, string $type, string $name, string $content, int $ttl = 1, bool $proxied = false, ?int $priority = null): Record
     {
-        return new Record($type, $name, $content, $ttl, $priority, $id, $proxied, true);
+        return new Record($type, $name, $content, $ttl, $priority, $id, $proxied);
     }
 
     public function testManagedRecordAlreadyCorrectIsUnchanged(): void

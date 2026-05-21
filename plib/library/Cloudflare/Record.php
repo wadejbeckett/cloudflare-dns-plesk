@@ -8,9 +8,8 @@ namespace Noiz\CloudflareDns\Cloudflare;
  * An immutable DNS record value object.
  *
  * The same class represents both:
- *  - "desired" records, coming from the control panel — here `id`, `proxied`,
- *    `proxiable` and `comment` are unknown (the panel has no Cloudflare
- *    concepts); and
+ *  - "desired" records, coming from the control panel — here `id`, `proxied`
+ *    and `comment` are unknown (the panel has no Cloudflare concepts); and
  *  - "existing" records, coming from Cloudflare — fully populated.
  */
 final class Record
@@ -22,7 +21,6 @@ final class Record
     public ?int $priority;
     public ?string $id;
     public ?bool $proxied;
-    public bool $proxiable;
 
     /** The Cloudflare record comment — carries the ownership marker. */
     public ?string $comment;
@@ -35,17 +33,15 @@ final class Record
         ?int $priority = null,
         ?string $id = null,
         ?bool $proxied = null,
-        bool $proxiable = false,
         ?string $comment = null
     ) {
         $this->type = strtoupper(trim($type));
-        $this->name = self::normaliseName($name);
+        $this->name = DnsName::normalise($name);
         $this->content = trim($content);
         $this->ttl = $ttl > 0 ? $ttl : 1;
         $this->priority = $priority;
         $this->id = $id;
         $this->proxied = $proxied;
-        $this->proxiable = $proxiable;
         $this->comment = $comment;
     }
 
@@ -64,7 +60,6 @@ final class Record
             isset($row['priority']) ? (int) $row['priority'] : null,
             isset($row['id']) ? (string) $row['id'] : null,
             array_key_exists('proxied', $row) ? (bool) $row['proxied'] : null,
-            (bool) ($row['proxiable'] ?? false),
             (isset($row['comment']) && $row['comment'] !== null) ? (string) $row['comment'] : null
         );
     }
@@ -109,14 +104,6 @@ final class Record
         return $this->ttl === $desired->ttl;
     }
 
-    public function withId(string $id): self
-    {
-        $clone = clone $this;
-        $clone->id = $id;
-
-        return $clone;
-    }
-
     /**
      * Content normalised for comparison across Plesk and Cloudflare.
      */
@@ -133,10 +120,5 @@ final class Record
         }
 
         return $this->content;
-    }
-
-    private static function normaliseName(string $name): string
-    {
-        return strtolower(rtrim(trim($name), '.'));
     }
 }

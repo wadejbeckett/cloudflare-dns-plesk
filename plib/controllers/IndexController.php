@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Noiz\CloudflareDns\Cloudflare\Client;
 
 /**
@@ -42,13 +44,8 @@ class IndexController extends pm_Controller_Action
 
         $this->showConnectionStatus();
 
-        $domains = $this->buildDomainList();
-        if (!$domains) {
-            $this->_status->addMessage('info', 'No domains on this server yet. Add a domain in Plesk, then return here to activate it for syncing.');
-        }
-
         $this->view->form = $form;
-        $this->view->domains = $domains;
+        $this->view->domains = $this->buildDomainList();
         $this->view->autoEnable = $this->isAutoEnabled();
         $this->view->toggleDomainUrl = pm_Context::getActionUrl('index', 'toggle-domain');
         $this->view->toggleAutoenableUrl = pm_Context::getActionUrl('index', 'toggle-autoenable');
