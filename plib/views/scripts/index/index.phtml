@@ -8,19 +8,23 @@
 <?php echo $this->form; ?>
 
 <script type="text/javascript">
-// The API token field is rendered disabled once a token is saved, so the
-// browser cannot autofill it and an unrelated save cannot overwrite the
-// stored token. Ticking "Change the API token" unlocks it for a deliberate
-// edit and clears any value the browser may have pre-filled.
+// The API token field renders disabled once a token is saved, so the browser
+// cannot autofill it and an unrelated save cannot overwrite the stored token.
+// Ticking "Change the API token" unlocks it immediately (no save needed) and
+// clears any value the browser may have pre-filled.
+//
+// Note: select the checkbox by id, not name — Plesk renders a checkbox as a
+// hidden companion input plus the visible box, both sharing the same name, so
+// getElementsByName(...)[0] would return the (unclickable) hidden input.
 (function () {
-    var checkbox = document.getElementsByName('change_token')[0];
-    var field = document.getElementsByName('api_token')[0];
-    if (!checkbox || !field) {
+    var toggle = document.getElementById('change_token');
+    var field = document.getElementById('api_token');
+    if (!toggle || !field) {
         return;
     }
-    checkbox.addEventListener('change', function () {
-        field.disabled = !checkbox.checked;
-        if (checkbox.checked) {
+    toggle.addEventListener('change', function () {
+        field.disabled = !toggle.checked;
+        if (toggle.checked) {
             field.value = '';
             field.focus();
         }
