@@ -44,9 +44,6 @@ directly.
    zip -r cloudflare-dns-sync.zip meta.xml plib htdocs
    ```
 
-   (or download a prebuilt `cloudflare-dns-sync.zip` from the
-   [Releases](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases) page).
-
 2. **Install it** — in Plesk: **Extensions → My Extensions → Upload Extension**,
    choose the zip. Or from the command line:
 
