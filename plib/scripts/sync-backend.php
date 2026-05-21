@@ -28,10 +28,15 @@ pm_Context::init('cloudflare-dns-sync');
 
 require_once __DIR__ . '/../library/autoload.php';
 
-/** Write a line to stdout — Plesk records it in the panel log. */
+/** Write a line to stdout (Plesk's log) and the extension's own log file. */
 function cfdns_log(string $message): void
 {
     fwrite(STDOUT, 'cloudflare-dns-sync: ' . $message . "\n");
+    @file_put_contents(
+        rtrim(pm_Context::getVarDir(), '/') . '/sync.log',
+        '[' . date('Y-m-d H:i:s') . '] ' . $message . "\n",
+        FILE_APPEND
+    );
 }
 
 /** Domains the administrator has activated for syncing. */
