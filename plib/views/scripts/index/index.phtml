@@ -1,33 +1,146 @@
 <?php /** @var pm_View $this */ ?>
+<style type="text/css">
+.cfdns-switch { position: relative; display: inline-block; width: 42px; height: 22px; vertical-align: middle; }
+.cfdns-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.cfdns-switch .cfdns-slider { position: absolute; inset: 0; cursor: pointer; background: #bbb; border-radius: 22px; transition: background .15s; }
+.cfdns-switch .cfdns-slider::before { content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .15s; }
+.cfdns-switch input:checked + .cfdns-slider { background: #3a9c3a; }
+.cfdns-switch input:checked + .cfdns-slider::before { transform: translateX(20px); }
+.cfdns-switch input:disabled + .cfdns-slider { opacity: .55; cursor: default; }
+.cfdns-domains { border-collapse: collapse; margin: 6px 0 18px; }
+.cfdns-domains td { padding: 9px 18px 9px 0; border-bottom: 1px solid #ececec; vertical-align: middle; }
+.cfdns-domains tr:last-child td { border-bottom: none; }
+.cfdns-domain-name { font-weight: 600; }
+.cfdns-status-ok { color: #3a9c3a; }
+.cfdns-status-error { color: #d44; }
+.cfdns-status-muted { color: #999; }
+.cfdns-autoenable { margin: 14px 0 4px; }
+.cfdns-autoenable .cfdns-text { margin-left: 10px; }
+.cfdns-section { margin-top: 24px; }
+</style>
+
 <p>
     Synchronise your Plesk DNS zones to Cloudflare. Plesk stays the master:
     record changes are pushed to Cloudflare without resetting proxy
     (orange-cloud) state, comments, or page-rule associations.
 </p>
 
+<h3 class="cfdns-section">Cloudflare connection</h3>
 <?php echo $this->form; ?>
 
+<h3 class="cfdns-section">Domains to sync</h3>
+<?php if ($this->domains): ?>
+<p>
+    Switch a domain on to sync it to Cloudflare — it is pushed immediately.
+    Switching it off stops syncing; its Cloudflare zone is left intact.
+</p>
+<table class="cfdns-domains">
+    <tbody>
+    <?php foreach ($this->domains as $d): ?>
+        <tr data-domain="<?php echo htmlspecialchars($d['name'], ENT_QUOTES); ?>">
+            <td class="cfdns-domain-name"><?php echo htmlspecialchars($d['name']); ?></td>
+            <td>
+                <label class="cfdns-switch">
+                    <input type="checkbox" class="cfdns-domain-toggle"<?php echo $d['enabled'] ? ' checked="checked"' : ''; ?>>
+                    <span class="cfdns-slider"></span>
+                </label>
+            </td>
+            <td class="cfdns-status cfdns-status-<?php echo $d['status']['class']; ?>"><?php echo htmlspecialchars($d['status']['text']); ?></td>
+        </tr>
+    <?php endforeach; ?>
+    </tbody>
+</table>
+<?php else: ?>
+<p>No domains on this server yet. Add a domain in Plesk, then return here to activate it.</p>
+<?php endif; ?>
+
+<div class="cfdns-autoenable">
+    <label class="cfdns-switch">
+        <input type="checkbox" id="cfdns-autoenable-toggle"<?php echo $this->autoEnable ? ' checked="checked"' : ''; ?>>
+        <span class="cfdns-slider"></span>
+    </label>
+    <span class="cfdns-text">Auto-enable new domains — a domain added in Plesk starts syncing automatically.</span>
+</div>
+
 <script type="text/javascript">
-// The API token field renders disabled once a token is saved, so the browser
-// cannot autofill it and an unrelated save cannot overwrite the stored token.
-// Ticking "Change the API token" unlocks it immediately (no save needed) and
-// clears any value the browser may have pre-filled.
-//
-// Note: select the checkbox by id, not name — Plesk renders a checkbox as a
-// hidden companion input plus the visible box, both sharing the same name, so
-// getElementsByName(...)[0] would return the (unclickable) hidden input.
 (function () {
-    var toggle = document.getElementById('change_token');
-    var field = document.getElementById('api_token');
-    if (!toggle || !field) {
-        return;
+    // --- API token field unlock -------------------------------------------
+    // Select the checkbox by id, not name — Plesk renders a checkbox as a
+    // hidden companion input plus the visible box, both sharing one name.
+    var tokenToggle = document.getElementById('change_token');
+    var tokenField = document.getElementById('api_token');
+    if (tokenToggle && tokenField) {
+        tokenToggle.addEventListener('change', function () {
+            tokenField.disabled = !tokenToggle.checked;
+            if (tokenToggle.checked) {
+                tokenField.value = '';
+                tokenField.focus();
+            }
+        });
     }
-    toggle.addEventListener('change', function () {
-        field.disabled = !toggle.checked;
-        if (toggle.checked) {
-            field.value = '';
-            field.focus();
-        }
+
+    // --- Per-domain + auto-enable toggles (instant, AJAX) -----------------
+    var toggleDomainUrl = <?php echo json_encode($this->toggleDomainUrl); ?>;
+    var toggleAutoenableUrl = <?php echo json_encode($this->toggleAutoenableUrl); ?>;
+
+    function post(url, data) {
+        var token = document.getElementById('form_forgery_protection_token');
+        data.forgery_protection_token = token ? token.value : '';
+        var body = Object.keys(data).map(function (k) {
+            return encodeURIComponent(k) + '=' + encodeURIComponent(data[k]);
+        }).join('&');
+        return fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: body
+        }).then(function (r) { return r.json(); });
+    }
+
+    function setStatus(cell, status) {
+        cell.textContent = status.text;
+        cell.className = 'cfdns-status cfdns-status-' + status.class;
+    }
+
+    var rows = document.querySelectorAll('.cfdns-domains tr[data-domain]');
+    Array.prototype.forEach.call(rows, function (row) {
+        var checkbox = row.querySelector('.cfdns-domain-toggle');
+        var cell = row.querySelector('.cfdns-status');
+        checkbox.addEventListener('change', function () {
+            var on = checkbox.checked;
+            checkbox.disabled = true;
+            cell.textContent = on ? 'Syncing…' : 'Updating…';
+            cell.className = 'cfdns-status cfdns-status-muted';
+            post(toggleDomainUrl, { domain: row.getAttribute('data-domain'), enabled: on ? '1' : '0' })
+                .then(function (res) {
+                    if (!res || !res.success) {
+                        throw new Error(res && res.message ? res.message : 'Request failed');
+                    }
+                    setStatus(cell, res.status);
+                })
+                .catch(function (err) {
+                    checkbox.checked = !on;
+                    setStatus(cell, { text: 'Error: ' + err.message, 'class': 'error' });
+                })
+                .then(function () { checkbox.disabled = false; });
+        });
     });
+
+    var autoToggle = document.getElementById('cfdns-autoenable-toggle');
+    if (autoToggle) {
+        autoToggle.addEventListener('change', function () {
+            var on = autoToggle.checked;
+            autoToggle.disabled = true;
+            post(toggleAutoenableUrl, { enabled: on ? '1' : '0' })
+                .then(function (res) {
+                    if (!res || !res.success) { autoToggle.checked = !on; }
+                })
+                .catch(function () { autoToggle.checked = !on; })
+                .then(function () { autoToggle.disabled = false; });
+        });
+    }
 })();
 </script>

@@ -47,6 +47,13 @@ function cfdns_save_enabled_domains(array $domains): void
     pm_Settings::set('enabled_domains', json_encode(array_values($domains)));
 }
 
+/** Record a zone's sync outcome for the settings page to display. */
+function cfdns_set_status(string $zone, array $status): void
+{
+    $status['ts'] = time();
+    pm_Settings::set('status_' . $zone, json_encode($status));
+}
+
 $token = trim((string) pm_Settings::get('api_token'));
 if ($token === '') {
     // Not configured yet — do nothing and let Plesk's own DNS proceed.
@@ -108,6 +115,7 @@ foreach ($parsed['operations'] as $operation) {
             cfdns_log("$zoneName removed in Plesk — Cloudflare zone left intact.");
             $enabled = array_values(array_diff($enabled, [$zoneName]));
             cfdns_save_enabled_domains($enabled);
+            pm_Settings::set('status_' . $zoneName, '');
             continue;
         }
 
@@ -117,6 +125,7 @@ foreach ($parsed['operations'] as $operation) {
 
         if ($zoneId === null) {
             cfdns_log("$zoneName is not in Cloudflare and no account ID is set — skipping.");
+            cfdns_set_status($zoneName, ['ok' => false, 'error' => 'not in Cloudflare and no account ID set']);
             $hadError = true;
             continue;
         }
@@ -140,13 +149,18 @@ foreach ($parsed['operations'] as $operation) {
             cfdns_log("$zoneName — {$error['action']} {$error['record']}: {$error['error']}");
         }
         if ($report->hasErrors()) {
+            cfdns_set_status($zoneName, ['ok' => false, 'error' => count($report->errors) . ' record(s) failed to sync']);
             $hadError = true;
+        } else {
+            cfdns_set_status($zoneName, ['ok' => true, 'records' => count($operation->records)]);
         }
     } catch (ApiException $e) {
         cfdns_log("$zoneName — Cloudflare API error: " . $e->getMessage());
+        cfdns_set_status($zoneName, ['ok' => false, 'error' => $e->getMessage()]);
         $hadError = true;
     } catch (\Throwable $e) {
         cfdns_log("$zoneName — unexpected error: " . $e->getMessage());
+        cfdns_set_status($zoneName, ['ok' => false, 'error' => $e->getMessage()]);
         $hadError = true;
     }
 }

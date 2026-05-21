@@ -5,9 +5,9 @@ use Noiz\CloudflareDns\Cloudflare\Client;
 /**
  * Admin settings page for the Cloudflare DNS Sync extension.
  *
- * Lets an administrator enter the Cloudflare API token and account ID, and
- * choose which domains are synced to Cloudflare — per-domain activation, with
- * an optional auto-enable for newly added domains.
+ * Holds the Cloudflare connection settings (API token, account ID) and the
+ * per-domain sync controls — each domain has an instant on/off toggle, and
+ * activating one pushes it to Cloudflare straight away.
  */
 class IndexController extends pm_Controller_Action
 {
@@ -42,31 +42,86 @@ class IndexController extends pm_Controller_Action
 
         $this->showConnectionStatus();
 
-        if (!$this->listDomainNames()) {
+        $domains = $this->buildDomainList();
+        if (!$domains) {
             $this->_status->addMessage('info', 'No domains on this server yet. Add a domain in Plesk, then return here to activate it for syncing.');
         }
 
         $this->view->form = $form;
+        $this->view->domains = $domains;
+        $this->view->autoEnable = $this->isAutoEnabled();
+        $this->view->toggleDomainUrl = pm_Context::getActionUrl('index', 'toggle-domain');
+        $this->view->toggleAutoenableUrl = pm_Context::getActionUrl('index', 'toggle-autoenable');
     }
 
     /**
-     * Triggers Plesk to re-push every DNS zone, which the registered custom
-     * backend then reconciles into Cloudflare.
+     * AJAX: activate or deactivate a single domain. Activating it also pushes
+     * the domain to Cloudflare immediately.
      */
-    public function resyncAction()
+    public function toggleDomainAction()
     {
         if (!$this->getRequest()->isPost()) {
             throw new pm_Exception('Permission denied');
         }
 
-        try {
-            pm_ApiCli::call('dns', ['--sync-all-zones']);
-            $this->_status->addMessage('info', 'Resync started — every DNS zone is being pushed to Cloudflare.');
-        } catch (pm_Exception $e) {
-            $this->_status->addMessage('error', 'Resync failed: ' . $e->getMessage());
+        $domain = trim((string) $this->getRequest()->getParam('domain'));
+        $enable = (string) $this->getRequest()->getParam('enabled') === '1';
+
+        if (!in_array($domain, $this->listDomainNames(), true)) {
+            $this->_helper->json(['success' => false, 'message' => 'Unknown domain.']);
+            return;
         }
 
-        $this->_helper->json(['redirect' => pm_Context::getBaseUrl()]);
+        $enabled = $this->getEnabledDomains();
+        if ($enable && !in_array($domain, $enabled, true)) {
+            $enabled[] = $domain;
+        } elseif (!$enable) {
+            $enabled = array_values(array_diff($enabled, [$domain]));
+        }
+        pm_Settings::set('enabled_domains', json_encode(array_values($enabled)));
+
+        if (!$enable) {
+            // Deactivating only stops future syncs — the Cloudflare zone is
+            // left intact, so just clear the stored status.
+            pm_Settings::set('status_' . $domain, '');
+            $this->_helper->json([
+                'success' => true,
+                'enabled' => false,
+                'status' => $this->describeStatus(false, null),
+            ]);
+            return;
+        }
+
+        // Activating a domain syncs it now: re-push every zone through the
+        // custom DNS backend, which records a per-domain status as it goes.
+        try {
+            pm_ApiCli::call('dns', ['--sync-all-zones']);
+        } catch (Exception $e) {
+            pm_Settings::set('status_' . $domain, json_encode([
+                'ok' => false,
+                'error' => 'Sync could not be started: ' . $e->getMessage(),
+                'ts' => time(),
+            ]));
+        }
+
+        $this->_helper->json([
+            'success' => true,
+            'enabled' => true,
+            'status' => $this->describeStatus(true, $this->getDomainStatus($domain)),
+        ]);
+    }
+
+    /** AJAX: toggle the server-wide "auto-enable new domains" setting. */
+    public function toggleAutoenableAction()
+    {
+        if (!$this->getRequest()->isPost()) {
+            throw new pm_Exception('Permission denied');
+        }
+
+        $on = (string) $this->getRequest()->getParam('enabled') === '1';
+        pm_Settings::set('auto_enable_new_domains', $on ? '1' : '');
+
+        $this->_helper->json(['success' => true, 'enabled' => $on]);
     }
 
     private function buildSettingsForm()
@@ -78,46 +133,30 @@ class IndexController extends pm_Controller_Action
         $form->addElement('password', 'api_token', [
             'label' => 'Cloudflare API token',
             'description' => $hasToken
-                ? 'A token is saved. To replace it, tick "Change the API token" below, then enter the new one.'
+                ? 'A token is saved. To replace it, tick "Change the API token", then enter the new one.'
                 : 'A scoped token with Zone DNS Edit and Zone Read permissions.',
             'autocomplete' => 'new-password',
         ]);
 
         if ($hasToken) {
-            // Lock the field once a token is stored. A disabled input is not
+            // Lock the field once a token is stored: a disabled input is not
             // autofilled by the browser and is not submitted, so a stray
-            // autofill can never silently overwrite a working token. The
-            // checkbox re-enables it — see views/scripts/index/index.phtml.
+            // autofill cannot overwrite a working token. The "Change the API
+            // token" checkbox unlocks it — see views/scripts/index/index.phtml.
             $tokenField = $form->getElement('api_token');
             $tokenField->setAttrib('disabled', 'disabled');
             $tokenField->setAttrib('placeholder', 'token saved — locked');
 
             $form->addElement('checkbox', 'change_token', [
                 'label' => 'Change the API token',
-                'description' => 'Tick to unlock the field above and enter a new token.',
+                'description' => 'Unlocks the field above so you can enter a new token.',
             ]);
         }
+
         $form->addElement('text', 'account_id', [
             'label' => 'Cloudflare account ID',
             'value' => pm_Settings::get('account_id'),
             'description' => 'Required so the extension can create Cloudflare zones for the domains you activate.',
-        ]);
-
-        $domains = $this->listDomainNames();
-        if ($domains) {
-            $enabled = array_values(array_intersect($this->getEnabledDomains(), $domains));
-            $form->addElement('multiCheckbox', 'enabled_domains', [
-                'label' => 'Domains to sync',
-                'multiOptions' => array_combine($domains, $domains),
-                'value' => $enabled,
-                'description' => 'Only the ticked domains are pushed to Cloudflare. Unticking a domain stops syncing it; its Cloudflare zone is left intact.',
-            ]);
-        }
-
-        $form->addElement('checkbox', 'auto_enable_new_domains', [
-            'label' => 'Auto-enable new domains',
-            'checked' => ((string) pm_Settings::get('auto_enable_new_domains', '')) !== '',
-            'description' => 'When on, a domain added in Plesk starts syncing automatically. When off (default), activate each domain in the list above.',
         ]);
 
         $form->addControlButtons([
@@ -126,24 +165,6 @@ class IndexController extends pm_Controller_Action
         ]);
 
         return $form;
-    }
-
-    /** All domain names on this server, sorted alphabetically. */
-    private function listDomainNames()
-    {
-        $names = [];
-        foreach (pm_Domain::getAllDomains() as $domain) {
-            $names[] = $domain->getName();
-        }
-        sort($names);
-        return $names;
-    }
-
-    /** The administrator's per-domain activation list. */
-    private function getEnabledDomains()
-    {
-        $list = json_decode((string) pm_Settings::get('enabled_domains', '[]'), true);
-        return is_array($list) ? $list : [];
     }
 
     private function saveSettings($form)
@@ -165,20 +186,13 @@ class IndexController extends pm_Controller_Action
             }
         }
 
-        // Verify only when the token actually changes — saving the domain list
-        // must not depend on, or be blocked by, a Cloudflare round-trip.
+        // Verify against Cloudflare only when the token actually changes.
         if ($token !== $storedToken && $token !== '' && !(new Client($token))->verifyToken()) {
             throw new pm_Exception('That Cloudflare API token could not be verified — settings were not saved.');
         }
 
         pm_Settings::set('api_token', $token);
         pm_Settings::set('account_id', trim((string) $form->getValue('account_id')));
-        pm_Settings::set('auto_enable_new_domains', $form->getValue('auto_enable_new_domains') ? '1' : '');
-
-        if ($form->getElement('enabled_domains') !== null) {
-            $selected = array_values(array_unique(array_map('strval', (array) $form->getValue('enabled_domains'))));
-            pm_Settings::set('enabled_domains', json_encode($selected));
-        }
     }
 
     private function showConnectionStatus()
@@ -200,5 +214,71 @@ class IndexController extends pm_Controller_Action
         } else {
             $this->_status->addMessage('error', 'The stored Cloudflare API token is no longer valid.');
         }
+    }
+
+    /** One display row per server domain: name, enabled flag, status. */
+    private function buildDomainList()
+    {
+        $enabled = $this->getEnabledDomains();
+        $rows = [];
+        foreach ($this->listDomainNames() as $name) {
+            $isEnabled = in_array($name, $enabled, true);
+            $rows[] = [
+                'name' => $name,
+                'enabled' => $isEnabled,
+                'status' => $this->describeStatus($isEnabled, $this->getDomainStatus($name)),
+            ];
+        }
+        return $rows;
+    }
+
+    /** All domain names on this server, sorted alphabetically. */
+    private function listDomainNames()
+    {
+        $names = [];
+        foreach (pm_Domain::getAllDomains() as $domain) {
+            $names[] = $domain->getName();
+        }
+        sort($names);
+        return $names;
+    }
+
+    /** The administrator's per-domain activation list. */
+    private function getEnabledDomains()
+    {
+        $list = json_decode((string) pm_Settings::get('enabled_domains', '[]'), true);
+        return is_array($list) ? $list : [];
+    }
+
+    private function isAutoEnabled()
+    {
+        return ((string) pm_Settings::get('auto_enable_new_domains', '')) !== '';
+    }
+
+    /** The last recorded sync outcome for a domain, or null if never synced. */
+    private function getDomainStatus($domain)
+    {
+        $raw = (string) pm_Settings::get('status_' . $domain);
+        if ($raw === '') {
+            return null;
+        }
+        $status = json_decode($raw, true);
+        return is_array($status) ? $status : null;
+    }
+
+    /** Turns a raw status record into display text plus a CSS state class. */
+    private function describeStatus($enabled, $status)
+    {
+        if (!$enabled) {
+            return ['text' => 'Not syncing', 'class' => 'muted'];
+        }
+        if (!is_array($status)) {
+            return ['text' => 'Enabled — not yet synced', 'class' => 'muted'];
+        }
+        if (empty($status['ok'])) {
+            return ['text' => 'Sync failed: ' . ($status['error'] ?? 'unknown error'), 'class' => 'error'];
+        }
+        $n = (int) ($status['records'] ?? 0);
+        return ['text' => 'Synced — ' . $n . ' record' . ($n === 1 ? '' : 's'), 'class' => 'ok'];
     }
 }
