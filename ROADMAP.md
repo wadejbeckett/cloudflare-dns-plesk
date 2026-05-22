@@ -23,9 +23,9 @@ One-way, non-destructive Plesk → Cloudflare DNS sync.
 
 ## v0.2.0 — usability
 
-- [ ] Re-add the "Resync all domains" button on its own page (two
-      `pm_Form_Simple` forms on one page collide over a hardcoded button id)
-- [ ] Broader record-type support: `SRV`, `CAA` (today: A/AAAA/CNAME/MX/TXT)
+- [ ] Re-add a "Resync all domains" action — force a full re-push of every
+      activated domain
+- [x] Broader record-type support: `SRV` and `CAA`
 - [ ] Surface each domain's Cloudflare-assigned nameservers in the UI
 
 ## Later

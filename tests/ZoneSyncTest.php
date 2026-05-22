@@ -229,4 +229,54 @@ final class ZoneSyncTest extends TestCase
         self::assertTrue($plan->isEmpty());
         self::assertCount(1, $plan->unchanged);
     }
+
+    public function testAcmeChallengeWithManualSiblingsUpdatesOnlyTheRenewedRecord(): void
+    {
+        // Plesk's own _acme-challenge TXT plus two a client added by hand —
+        // all managed. Plesk renews only its own; the manual ones must not move.
+        $name = '_acme-challenge.example.com';
+
+        $plan = ZoneSync::plan(
+            [
+                $this->panel('TXT', $name, 'plesk-auto-NEW'),
+                $this->panel('TXT', $name, 'client-manual-A'),
+                $this->panel('TXT', $name, 'client-manual-B'),
+            ],
+            [
+                $this->cf('auto', 'TXT', $name, 'plesk-auto-OLD', 3600),
+                $this->cf('manA', 'TXT', $name, 'client-manual-A', 3600),
+                $this->cf('manB', 'TXT', $name, 'client-manual-B', 3600),
+            ],
+            ['managedIds' => ['auto', 'manA', 'manB']]
+        );
+
+        // The two manual records are recognised unchanged; only the renewed
+        // record is updated — a PATCH on the old auto record, not a recreate.
+        self::assertCount(2, $plan->unchanged);
+        self::assertCount(1, $plan->updates);
+        self::assertCount(0, $plan->creates);
+        self::assertCount(0, $plan->deletes);
+        self::assertSame('auto', $plan->updates[0]->existing->id);
+        self::assertSame('plesk-auto-NEW', $plan->updates[0]->patchPayload()['content']);
+    }
+
+    public function testSrvRecordPortChangeIsAnUpdate(): void
+    {
+        $desired = new Record(
+            'SRV', '_sip._tcp.example.com', '5 5061 sip.example.com', 3600,
+            null, null, null, null,
+            ['priority' => 10, 'weight' => 5, 'port' => 5061, 'target' => 'sip.example.com']
+        );
+        $existing = new Record(
+            'SRV', '_sip._tcp.example.com', '5 5060 sip.example.com', 3600,
+            null, 'srv1', null, null,
+            ['priority' => 10, 'weight' => 5, 'port' => 5060, 'target' => 'sip.example.com']
+        );
+
+        $plan = ZoneSync::plan([$desired], [$existing], ['managedIds' => ['srv1']]);
+
+        self::assertCount(1, $plan->updates);
+        self::assertCount(0, $plan->creates);
+        self::assertSame(5061, $plan->updates[0]->patchPayload()['data']['port']);
+    }
 }

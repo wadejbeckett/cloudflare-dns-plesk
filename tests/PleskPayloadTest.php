@@ -106,7 +106,7 @@ final class PleskPayloadTest extends TestCase
                     'name' => 'example.com.',
                     'soa' => ['ttl' => 3600],
                     'rr' => [
-                        ['host' => '_sip._tcp.example.com.', 'type' => 'SRV', 'value' => 'sip.example.com.', 'opt' => '10 60 5060'],
+                        ['host' => '_443._tcp.example.com.', 'type' => 'TLSA', 'value' => 'abcdef', 'opt' => '3 1 1'],
                     ],
                 ],
             ],
@@ -116,7 +116,58 @@ final class PleskPayloadTest extends TestCase
 
         self::assertCount(0, $result['operations'][0]->records);
         self::assertCount(1, $result['skipped']);
-        self::assertStringContainsString('SRV', $result['skipped'][0]);
+        self::assertStringContainsString('TLSA', $result['skipped'][0]);
+    }
+
+    public function testSrvRecordIsParsedIntoStructuredData(): void
+    {
+        $json = (string) json_encode([
+            [
+                'command' => 'update',
+                'zone' => [
+                    'name' => 'example.com.',
+                    'soa' => ['ttl' => 3600],
+                    'rr' => [
+                        ['host' => '_imaps._tcp.example.com.', 'type' => 'SRV', 'value' => 'mail.example.com.', 'opt' => '1 5 993'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $records = Payload::parse($json)['operations'][0]->records;
+
+        self::assertCount(1, $records);
+        self::assertSame('SRV', $records[0]->type);
+        self::assertSame('_imaps._tcp.example.com', $records[0]->name);
+        self::assertSame(
+            ['priority' => 1, 'weight' => 5, 'port' => 993, 'target' => 'mail.example.com'],
+            $records[0]->data
+        );
+    }
+
+    public function testCaaRecordIsParsedIntoStructuredData(): void
+    {
+        $json = (string) json_encode([
+            [
+                'command' => 'update',
+                'zone' => [
+                    'name' => 'example.com.',
+                    'soa' => ['ttl' => 3600],
+                    'rr' => [
+                        ['host' => 'example.com.', 'type' => 'CAA', 'value' => 'letsencrypt.org', 'opt' => '0 issue'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $records = Payload::parse($json)['operations'][0]->records;
+
+        self::assertCount(1, $records);
+        self::assertSame('CAA', $records[0]->type);
+        self::assertSame(
+            ['flags' => 0, 'tag' => 'issue', 'value' => 'letsencrypt.org'],
+            $records[0]->data
+        );
     }
 
     public function testPtrOperationsAreIgnored(): void

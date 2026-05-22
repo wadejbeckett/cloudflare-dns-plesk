@@ -39,6 +39,15 @@ final class RecordUpdate
      */
     public function patchPayload(): array
     {
+        // SRV / CAA: Cloudflare represents the value as a structured object.
+        // These types are never proxied, so the TTL always travels with it.
+        if ($this->desired->data !== null) {
+            return [
+                'data' => $this->desired->data,
+                'ttl' => $this->desired->ttl,
+            ];
+        }
+
         $payload = ['content' => $this->desired->content];
 
         if ($this->desired->priority !== null) {

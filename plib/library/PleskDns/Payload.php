@@ -17,7 +17,7 @@ use Noiz\CloudflareDns\Cloudflare\Record;
 final class Payload
 {
     /** Record types translated into Cloudflare records. */
-    public const SUPPORTED_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT'];
+    public const SUPPORTED_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'CAA'];
 
     /** Types Cloudflare manages itself — silently dropped, no warning. */
     private const PROVIDER_MANAGED_TYPES = ['SOA', 'NS'];
@@ -99,6 +99,37 @@ final class Payload
         $value = trim((string) ($rr['value'] ?? ''));
         $opt = trim((string) ($rr['opt'] ?? ''));
         $ttl = (int) ($rr['ttl'] ?? $defaultTtl);
+
+        if ($type === 'SRV') {
+            // Plesk delivers SRV as value = target, opt = "priority weight port".
+            [$priority, $weight, $port] = array_pad(
+                array_map('intval', preg_split('/\s+/', $opt) ?: []),
+                3,
+                0
+            );
+            $target = DnsName::normalise($value);
+
+            return new Record($type, $host, "$weight $port $target", $ttl, null, null, null, null, [
+                'priority' => $priority,
+                'weight' => $weight,
+                'port' => $port,
+                'target' => $target,
+            ]);
+        }
+
+        if ($type === 'CAA') {
+            // Plesk delivers CAA as value = the value, opt = "flags tag".
+            $parts = preg_split('/\s+/', $opt) ?: [];
+            $flags = (int) ($parts[0] ?? 0);
+            $tag = strtolower((string) ($parts[1] ?? 'issue'));
+            $caaValue = trim($value, " \t\"");
+
+            return new Record($type, $host, sprintf('%d %s "%s"', $flags, $tag, $caaValue), $ttl, null, null, null, null, [
+                'flags' => $flags,
+                'tag' => $tag,
+                'value' => $caaValue,
+            ]);
+        }
 
         // Hostname-valued records: drop the trailing dot Plesk includes.
         if ($type === 'CNAME' || $type === 'MX') {

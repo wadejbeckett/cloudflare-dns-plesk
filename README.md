@@ -33,6 +33,13 @@ official Cloudflare extension that this project exists to avoid.
 - A Cloudflare account
 - PHP 8.0+ with `ext-curl` and `ext-json` (bundled with Plesk)
 
+## Compatibility
+
+This is a **Plesk** extension and installs only on Plesk. The Cloudflare
+client and diff engine in `plib/library/Cloudflare/` are deliberately
+panel-agnostic, so a **DirectAdmin** adapter is planned that would reuse that
+core unchanged — but it is separate work and not part of this package.
+
 ## Installation
 
 The extension is not in the Plesk Extensions Catalog — install the package
@@ -100,8 +107,9 @@ Cloudflare automatically.
 
 - **New records are created grey** (DNS-only). The orange cloud is yours to
   manage in Cloudflare — the extension never turns it on or off.
-- **Record types synced:** `A`, `AAAA`, `CNAME`, `MX`, `TXT`. `SOA`/`NS` are
-  left to Cloudflare; `SRV`/`CAA` are not synced yet (see the roadmap).
+- **Record types synced:** `A`, `AAAA`, `CNAME`, `MX`, `TXT`, `SRV`, `CAA`.
+  `SOA`/`NS` are left to Cloudflare. Any other type (e.g. `TLSA`, `DS`) is
+  skipped, and each skip is logged.
 - **Removing a domain in Plesk** leaves its Cloudflare zone in place — nothing
   is deleted.
 - **Nameserver delegation** at your registrar is still your job. The extension

@@ -159,4 +159,32 @@ final class DnsRecordsApplyTest extends TestCase
 
         self::assertFalse((new Client('bad-token', $transport))->verifyToken());
     }
+
+    public function testSrvCreateSendsTheDataObjectNotContent(): void
+    {
+        $transport = new FakeTransport();
+        $transport->queue(200, ['success' => true, 'result' => [
+            'id' => 'srv1', 'type' => 'SRV', 'name' => '_sip._tcp.example.com', 'ttl' => 3600,
+            'data' => ['priority' => 10, 'weight' => 5, 'port' => 5060, 'target' => 'sip.example.com'],
+        ]]);
+
+        $records = new DnsRecords(new Client('test-token', $transport), 'zone123');
+        $srv = new Record(
+            'SRV', '_sip._tcp.example.com', '5 5060 sip.example.com', 3600,
+            null, null, null, null,
+            ['priority' => 10, 'weight' => 5, 'port' => 5060, 'target' => 'sip.example.com']
+        );
+
+        $report = $records->apply(new SyncPlan([$srv], [], []));
+
+        self::assertSame(1, $report->created);
+
+        $body = json_decode((string) $transport->lastRequest()['body'], true);
+        self::assertIsArray($body);
+        self::assertArrayHasKey('data', $body);
+        self::assertArrayNotHasKey('content', $body);
+        self::assertSame(5060, $body['data']['port']);
+        // Still stamped as managed by this extension.
+        self::assertStringContainsString('plesk-dns-sync', (string) $body['comment']);
+    }
 }

@@ -11,9 +11,16 @@ namespace Noiz\CloudflareDns\Cloudflare;
  *  - "desired" records, coming from the control panel — here `id`, `proxied`
  *    and `comment` are unknown (the panel has no Cloudflare concepts); and
  *  - "existing" records, coming from Cloudflare — fully populated.
+ *
+ * `SRV` and `CAA` records carry their structured fields in `data`
+ * (`{priority,weight,port,target}` and `{flags,tag,value}`) — Cloudflare's API
+ * represents those types as an object rather than a flat content string.
  */
 final class Record
 {
+    /** Record types whose value is a structured `data` object, not `content`. */
+    private const DATA_TYPES = ['SRV', 'CAA'];
+
     public string $type;
     public string $name;
     public string $content;
@@ -25,6 +32,9 @@ final class Record
     /** The Cloudflare record comment — carries the ownership marker. */
     public ?string $comment;
 
+    /** Structured value for SRV/CAA records; null for every other type. */
+    public ?array $data;
+
     public function __construct(
         string $type,
         string $name,
@@ -33,7 +43,8 @@ final class Record
         ?int $priority = null,
         ?string $id = null,
         ?bool $proxied = null,
-        ?string $comment = null
+        ?string $comment = null,
+        ?array $data = null
     ) {
         $this->type = strtoupper(trim($type));
         $this->name = DnsName::normalise($name);
@@ -43,6 +54,7 @@ final class Record
         $this->id = $id;
         $this->proxied = $proxied;
         $this->comment = $comment;
+        $this->data = $data;
     }
 
     /**
@@ -52,15 +64,19 @@ final class Record
      */
     public static function fromCloudflare(array $row): self
     {
+        $type = strtoupper(trim((string) ($row['type'] ?? '')));
+        $isDataType = in_array($type, self::DATA_TYPES, true);
+
         return new self(
-            (string) ($row['type'] ?? ''),
+            $type,
             (string) ($row['name'] ?? ''),
             (string) ($row['content'] ?? ''),
             (int) ($row['ttl'] ?? 1),
-            isset($row['priority']) ? (int) $row['priority'] : null,
+            (!$isDataType && isset($row['priority'])) ? (int) $row['priority'] : null,
             isset($row['id']) ? (string) $row['id'] : null,
             array_key_exists('proxied', $row) ? (bool) $row['proxied'] : null,
-            (isset($row['comment']) && $row['comment'] !== null) ? (string) $row['comment'] : null
+            (isset($row['comment']) && $row['comment'] !== null) ? (string) $row['comment'] : null,
+            ($isDataType && isset($row['data']) && is_array($row['data'])) ? $row['data'] : null
         );
     }
 
@@ -77,10 +93,17 @@ final class Record
     }
 
     /**
-     * True when two records carry the same DNS value (content + priority).
+     * True when two records carry the same DNS value.
+     *
+     * For SRV/CAA the structured `data` is compared; for every other type it
+     * is the content (plus priority for MX).
      */
     public function sameValue(self $other): bool
     {
+        if ($this->usesData() || $other->usesData()) {
+            return $this->normalisedData() === $other->normalisedData();
+        }
+
         return $this->normalisedContent() === $other->normalisedContent()
             && $this->priority === $other->priority;
     }
@@ -104,6 +127,12 @@ final class Record
         return $this->ttl === $desired->ttl;
     }
 
+    /** True for SRV/CAA — types whose value is a structured `data` object. */
+    private function usesData(): bool
+    {
+        return in_array($this->type, self::DATA_TYPES, true);
+    }
+
     /**
      * Content normalised for comparison across Plesk and Cloudflare.
      */
@@ -115,10 +144,40 @@ final class Record
         }
 
         // Hostname targets are case-insensitive and may carry a trailing dot.
-        if (in_array($this->type, ['CNAME', 'MX', 'NS', 'SRV', 'PTR'], true)) {
+        if (in_array($this->type, ['CNAME', 'MX', 'NS', 'PTR'], true)) {
             return strtolower(rtrim($this->content, '.'));
         }
 
         return $this->content;
+    }
+
+    /**
+     * The `data` object reduced to a canonical form, so two records can be
+     * compared with `===` regardless of key order or formatting.
+     *
+     * @return array<string,int|string>
+     */
+    private function normalisedData(): array
+    {
+        $data = $this->data ?? [];
+
+        if ($this->type === 'SRV') {
+            return [
+                'priority' => (int) ($data['priority'] ?? 0),
+                'weight' => (int) ($data['weight'] ?? 0),
+                'port' => (int) ($data['port'] ?? 0),
+                'target' => DnsName::normalise((string) ($data['target'] ?? '')),
+            ];
+        }
+
+        if ($this->type === 'CAA') {
+            return [
+                'flags' => (int) ($data['flags'] ?? 0),
+                'tag' => strtolower(trim((string) ($data['tag'] ?? ''))),
+                'value' => trim((string) ($data['value'] ?? ''), " \t\""),
+            ];
+        }
+
+        return [];
     }
 }

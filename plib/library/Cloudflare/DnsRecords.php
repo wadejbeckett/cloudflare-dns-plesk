@@ -57,12 +57,17 @@ final class DnsRecords
         $payload = [
             'type' => $record->type,
             'name' => $record->name,
-            'content' => $record->content,
             'ttl' => $record->ttl,
             'comment' => Ownership::MARKER,
         ];
-        if ($record->priority !== null) {
-            $payload['priority'] = $record->priority;
+        if ($record->data !== null) {
+            // SRV / CAA: Cloudflare represents the value as a structured object.
+            $payload['data'] = $record->data;
+        } else {
+            $payload['content'] = $record->content;
+            if ($record->priority !== null) {
+                $payload['priority'] = $record->priority;
+            }
         }
 
         $result = $this->client->request('POST', $this->base(), $payload);
