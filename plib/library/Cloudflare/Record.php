@@ -162,11 +162,14 @@ final class Record
         $data = $this->data ?? [];
 
         if ($this->type === 'SRV') {
+            $target = (string) ($data['target'] ?? '');
+
             return [
                 'priority' => (int) ($data['priority'] ?? 0),
                 'weight' => (int) ($data['weight'] ?? 0),
                 'port' => (int) ($data['port'] ?? 0),
-                'target' => DnsName::normalise((string) ($data['target'] ?? '')),
+                // Keep an RFC 2782 "." target intact (see Payload::toRecord).
+                'target' => $target === '.' ? '.' : DnsName::normalise($target),
             ];
         }
 

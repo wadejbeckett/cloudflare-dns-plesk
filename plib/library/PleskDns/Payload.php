@@ -107,7 +107,10 @@ final class Payload
                 3,
                 0
             );
-            $target = DnsName::normalise($value);
+            // An RFC 2782 target of "." ("service decidedly not available")
+            // is meaningful and must survive normalisation, which would
+            // otherwise strip the dot and leave an invalid empty target.
+            $target = $value === '.' ? '.' : DnsName::normalise($value);
 
             return new Record($type, $host, "$weight $port $target", $ttl, null, null, null, null, [
                 'priority' => $priority,
@@ -131,8 +134,10 @@ final class Payload
             ]);
         }
 
-        // Hostname-valued records: drop the trailing dot Plesk includes.
-        if ($type === 'CNAME' || $type === 'MX') {
+        // Hostname-valued records: drop the trailing dot Plesk includes — but
+        // keep a bare "." intact: a null MX (RFC 7505, "MX 0 .") uses it to
+        // declare that the domain accepts no mail.
+        if (($type === 'CNAME' || $type === 'MX') && $value !== '.') {
             $value = rtrim($value, '.');
         }
 

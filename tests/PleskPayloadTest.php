@@ -170,6 +170,54 @@ final class PleskPayloadTest extends TestCase
         );
     }
 
+    public function testSrvRecordWithDotTargetIsPreserved(): void
+    {
+        // RFC 2782: a target of "." means the service is decidedly not
+        // available — the dot must survive name normalisation.
+        $json = (string) json_encode([
+            [
+                'command' => 'update',
+                'zone' => [
+                    'name' => 'example.com.',
+                    'soa' => ['ttl' => 3600],
+                    'rr' => [
+                        ['host' => '_autodiscover._tcp.example.com.', 'type' => 'SRV', 'value' => '.', 'opt' => '0 0 0'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $records = Payload::parse($json)['operations'][0]->records;
+
+        self::assertCount(1, $records);
+        self::assertSame('.', $records[0]->data['target']);
+    }
+
+    public function testNullMxRecordKeepsItsDotTarget(): void
+    {
+        // RFC 7505: "MX 0 ." declares the domain accepts no mail — the bare
+        // "." target must not be stripped to an empty (invalid) value.
+        $json = (string) json_encode([
+            [
+                'command' => 'update',
+                'zone' => [
+                    'name' => 'example.com.',
+                    'soa' => ['ttl' => 3600],
+                    'rr' => [
+                        ['host' => 'example.com.', 'type' => 'MX', 'value' => '.', 'opt' => '0'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $records = Payload::parse($json)['operations'][0]->records;
+
+        self::assertCount(1, $records);
+        self::assertSame('MX', $records[0]->type);
+        self::assertSame('.', $records[0]->content);
+        self::assertSame(0, $records[0]->priority);
+    }
+
     public function testPtrOperationsAreIgnored(): void
     {
         $json = (string) json_encode([
