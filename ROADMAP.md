@@ -50,10 +50,11 @@ One-way, non-destructive Plesk → Cloudflare DNS sync.
       only when the row is actually signed. Plesk does not include
       DNSKEY/RRSIG/NSEC in the custom-backend payload, so this detection
       can't come from the records data path.
-- [ ] **Activation UX — background the sync.** `toggleDomainAction` blocks
-      on `pm_ApiCli::call('dns', ['--sync-all-zones'])`, so the AJAX hangs
-      for ~1 s per record. Fire the sync in the background and return
-      immediately; the polling already exists.
+- [x] **Activation UX — background the sync** (v0.4.1). The AJAX no longer
+      blocks on `plesk bin dns --sync-all-zones`; it fires in the background
+      and returns immediately. The toggle stays disabled until polling either
+      lands a final status or times out (2 min). Final-state messages on the
+      cell are now explicit ("Still syncing — refresh the page to update").
 - [ ] **Operational docs.** Install (fresh) · update (in-place via the
       auto-built release zip) · configure · activate a domain · sync one
       domain (`--add`/`--del` trick) · sync all (`--sync-all-zones`,

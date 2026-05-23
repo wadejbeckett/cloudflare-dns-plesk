@@ -92,16 +92,20 @@ class IndexController extends pm_Controller_Action
             return;
         }
 
-        // Activating syncs the domain now. The custom DNS backend runs the
-        // sync in the background and records a per-domain status when done —
-        // clear any stale status so the page can poll for the fresh result.
+        // Activating syncs the domain. We fire `--sync-all-zones` in the
+        // BACKGROUND so this AJAX returns immediately. Otherwise the call
+        // would block for as long as Plesk takes to walk every zone on the
+        // server (60+ seconds on a multi-tenant box like neo) — leaving the
+        // browser hanging and the UI stuck on "Syncing…". The client polls
+        // domainStatusAction for the eventual result.
         pm_Settings::set('status_' . $domain, '');
-        try {
-            pm_ApiCli::call('dns', ['--sync-all-zones']);
-        } catch (Exception $e) {
+        $execOutput = [];
+        $execReturn = -1;
+        @exec('plesk bin dns --sync-all-zones < /dev/null > /dev/null 2>&1 &', $execOutput, $execReturn);
+        if ($execReturn !== 0) {
             pm_Settings::set('status_' . $domain, json_encode([
                 'ok' => false,
-                'error' => 'Sync could not be started: ' . $e->getMessage(),
+                'error' => 'Failed to start background sync (exit ' . $execReturn . ')',
                 'ts' => time(),
             ]));
         }

@@ -156,13 +156,17 @@
         cell.className = 'cfdns-status cfdns-status-' + status['class'];
     }
 
-    // Poll a domain's status while its background sync runs.
-    function pollStatus(row) {
-        var cell = row.querySelector('.cfdns-status');
+    // Poll a domain's status while its background sync runs. The toggle stays
+    // disabled until polling either lands a final status or times out, so the
+    // user can't interrupt the sync mid-flight.
+    function pollStatus(row, checkbox, cell) {
+        if (!cell) { cell = row.querySelector('.cfdns-status'); }
         var domain = row.getAttribute('data-domain');
         var tries = 0;
+        var maxTries = 60;   // 60 × 2s = 2 minutes — generous for busy servers
         cell.textContent = 'Syncing…';
         cell.className = 'cfdns-status cfdns-status-muted';
+        function done() { if (checkbox) { checkbox.disabled = false; } }
         (function tick() {
             tries++;
             fetch(domainStatusUrl + '?domain=' + encodeURIComponent(domain), {
@@ -173,20 +177,28 @@
             .then(function (res) {
                 if (res && res.success && !res.pending) {
                     setStatus(cell, res.status);
-                } else if (tries < 15) {
+                    done();
+                } else if (tries < maxTries) {
                     setTimeout(tick, 2000);
                 } else {
-                    setStatus(cell, (res && res.status) ? res.status
-                        : { text: 'Enabled — sync status unknown', 'class': 'muted' });
+                    setStatus(cell, { text: 'Still syncing — refresh the page to update', 'class': 'muted' });
+                    done();
                 }
             })
             .catch(function () {
-                if (tries < 15) { setTimeout(tick, 2000); }
+                if (tries < maxTries) {
+                    setTimeout(tick, 2000);
+                } else {
+                    setStatus(cell, { text: 'Status unknown — refresh the page', 'class': 'muted' });
+                    done();
+                }
             });
         })();
     }
 
     // Run the actual toggle AJAX after the (off) path or after the modal-confirmed (on) path.
+    // The toggle stays disabled until the *whole* flow completes — including
+    // polling — so the operator can't interrupt a sync midway by clicking again.
     function fireToggle(row, checkbox, cell, on) {
         checkbox.disabled = true;
         cell.textContent = on ? 'Syncing…' : 'Updating…';
@@ -197,16 +209,18 @@
                     throw new Error(res && res.message ? res.message : 'Request failed');
                 }
                 if (res.pending) {
-                    pollStatus(row);
+                    // pollStatus owns re-enabling the checkbox.
+                    pollStatus(row, checkbox, cell);
                 } else {
                     setStatus(cell, res.status);
+                    checkbox.disabled = false;
                 }
             })
             .catch(function (err) {
                 checkbox.checked = !on;
                 setStatus(cell, { text: 'Error: ' + err.message, 'class': 'error' });
-            })
-            .then(function () { checkbox.disabled = false; });
+                checkbox.disabled = false;
+            });
     }
 
     // --- Activation confirmation modal ------------------------------------
@@ -275,9 +289,11 @@
             }
         });
 
-        // A domain already mid-sync when the page loaded — keep polling.
+        // A domain already mid-sync when the page loaded — keep polling and
+        // hold the toggle locked until it resolves.
         if (row.getAttribute('data-pending') === '1') {
-            pollStatus(row);
+            checkbox.disabled = true;
+            pollStatus(row, checkbox, cell);
         }
     });
 
