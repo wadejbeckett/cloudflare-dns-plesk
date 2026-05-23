@@ -19,7 +19,7 @@ namespace Noiz\CloudflareDns\Cloudflare;
 final class Record
 {
     /** Record types whose value is a structured `data` object, not `content`. */
-    private const DATA_TYPES = ['SRV', 'CAA'];
+    private const DATA_TYPES = ['SRV', 'CAA', 'TLSA'];
 
     public string $type;
     public string $name;
@@ -178,6 +178,15 @@ final class Record
                 'flags' => (int) ($data['flags'] ?? 0),
                 'tag' => strtolower(trim((string) ($data['tag'] ?? ''))),
                 'value' => trim((string) ($data['value'] ?? ''), " \t\""),
+            ];
+        }
+
+        if ($this->type === 'TLSA') {
+            return [
+                'usage' => (int) ($data['usage'] ?? 0),
+                'selector' => (int) ($data['selector'] ?? 0),
+                'matching_type' => (int) ($data['matching_type'] ?? 0),
+                'certificate' => strtolower(trim((string) ($data['certificate'] ?? ''))),
             ];
         }
 

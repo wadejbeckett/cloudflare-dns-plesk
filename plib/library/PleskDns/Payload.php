@@ -17,7 +17,7 @@ use Noiz\CloudflareDns\Cloudflare\Record;
 final class Payload
 {
     /** Record types translated into Cloudflare records. */
-    public const SUPPORTED_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'CAA'];
+    public const SUPPORTED_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'CAA', 'TLSA'];
 
     /** Types Cloudflare manages itself — silently dropped, no warning. */
     private const PROVIDER_MANAGED_TYPES = ['SOA', 'NS'];
@@ -132,6 +132,36 @@ final class Payload
                 'tag' => $tag,
                 'value' => $caaValue,
             ]);
+        }
+
+        if ($type === 'TLSA') {
+            // Plesk delivers TLSA as value = certificate (hex), opt = "usage
+            // selector matching-type". DANE wants the cert as a hex string —
+            // lower-case it so a re-uploaded cert that re-cases the hex
+            // doesn't look like a change.
+            [$usage, $selector, $matchingType] = array_pad(
+                array_map('intval', preg_split('/\s+/', $opt) ?: []),
+                3,
+                0
+            );
+            $certificate = strtolower(trim($value));
+
+            return new Record(
+                $type,
+                $host,
+                sprintf('%d %d %d %s', $usage, $selector, $matchingType, $certificate),
+                $ttl,
+                null,
+                null,
+                null,
+                null,
+                [
+                    'usage' => $usage,
+                    'selector' => $selector,
+                    'matching_type' => $matchingType,
+                    'certificate' => $certificate,
+                ]
+            );
         }
 
         // Hostname-valued records: drop the trailing dot Plesk includes — but

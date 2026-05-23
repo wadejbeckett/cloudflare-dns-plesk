@@ -99,6 +99,8 @@ final class PleskPayloadTest extends TestCase
 
     public function testUnsupportedTypeIsReportedAsSkipped(): void
     {
+        // DS (DNSSEC delegation signer) — not synced; a sensible representative
+        // of a Plesk-supported but extension-unsupported type.
         $json = (string) json_encode([
             [
                 'command' => 'update',
@@ -106,7 +108,7 @@ final class PleskPayloadTest extends TestCase
                     'name' => 'example.com.',
                     'soa' => ['ttl' => 3600],
                     'rr' => [
-                        ['host' => '_443._tcp.example.com.', 'type' => 'TLSA', 'value' => 'abcdef', 'opt' => '3 1 1'],
+                        ['host' => 'example.com.', 'type' => 'DS', 'value' => '12345 8 2 abcdef', 'opt' => ''],
                     ],
                 ],
             ],
@@ -116,7 +118,35 @@ final class PleskPayloadTest extends TestCase
 
         self::assertCount(0, $result['operations'][0]->records);
         self::assertCount(1, $result['skipped']);
-        self::assertStringContainsString('TLSA', $result['skipped'][0]);
+        self::assertStringContainsString('DS', $result['skipped'][0]);
+    }
+
+    public function testTlsaRecordIsParsedIntoStructuredData(): void
+    {
+        $json = (string) json_encode([
+            [
+                'command' => 'update',
+                'zone' => [
+                    'name' => 'example.com.',
+                    'soa' => ['ttl' => 3600],
+                    'rr' => [
+                        ['host' => '_443._tcp.mail.example.com.', 'type' => 'TLSA', 'value' => 'ABC123', 'opt' => '3 1 1'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $records = Payload::parse($json)['operations'][0]->records;
+
+        self::assertCount(1, $records);
+        self::assertSame('TLSA', $records[0]->type);
+        self::assertSame('_443._tcp.mail.example.com', $records[0]->name);
+        self::assertSame(
+            // The hex certificate is lower-cased so a re-uploaded cert that
+            // re-cases the hex doesn't look like a real change.
+            ['usage' => 3, 'selector' => 1, 'matching_type' => 1, 'certificate' => 'abc123'],
+            $records[0]->data
+        );
     }
 
     public function testSrvRecordIsParsedIntoStructuredData(): void

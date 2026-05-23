@@ -107,9 +107,9 @@ Cloudflare automatically.
 
 - **New records are created grey** (DNS-only). The orange cloud is yours to
   manage in Cloudflare — the extension never turns it on or off.
-- **Record types synced:** `A`, `AAAA`, `CNAME`, `MX`, `TXT`, `SRV`, `CAA`.
-  `SOA`/`NS` are left to Cloudflare. Any other type (e.g. `TLSA`, `DS`) is
-  skipped, and each skip is logged.
+- **Record types synced:** `A`, `AAAA`, `CNAME`, `MX`, `TXT`, `SRV`, `CAA`,
+  `TLSA`. `SOA`/`NS` are left to Cloudflare. Other types (e.g. `DS`, `HTTPS`)
+  are skipped, and each skip is logged.
 - **Removing a domain in Plesk** leaves its Cloudflare zone in place — nothing
   is deleted.
 - **Nameserver delegation** at your registrar is still your job. The extension

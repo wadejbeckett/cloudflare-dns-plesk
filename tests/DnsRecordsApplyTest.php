@@ -187,4 +187,32 @@ final class DnsRecordsApplyTest extends TestCase
         // Still stamped as managed by this extension.
         self::assertStringContainsString('plesk-dns-sync', (string) $body['comment']);
     }
+
+    public function testTlsaCreateSendsTheDataObjectNotContent(): void
+    {
+        $transport = new FakeTransport();
+        $transport->queue(200, ['success' => true, 'result' => [
+            'id' => 'tlsa1', 'type' => 'TLSA', 'name' => '_443._tcp.example.com', 'ttl' => 3600,
+            'data' => ['usage' => 3, 'selector' => 1, 'matching_type' => 1, 'certificate' => 'abc123'],
+        ]]);
+
+        $records = new DnsRecords(new Client('test-token', $transport), 'zone123');
+        $tlsa = new Record(
+            'TLSA', '_443._tcp.example.com', '3 1 1 abc123', 3600,
+            null, null, null, null,
+            ['usage' => 3, 'selector' => 1, 'matching_type' => 1, 'certificate' => 'abc123']
+        );
+
+        $report = $records->apply(new SyncPlan([$tlsa], [], []));
+
+        self::assertSame(1, $report->created);
+
+        $body = json_decode((string) $transport->lastRequest()['body'], true);
+        self::assertIsArray($body);
+        self::assertArrayHasKey('data', $body);
+        self::assertArrayNotHasKey('content', $body);
+        self::assertSame(1, $body['data']['matching_type']);
+        self::assertSame('abc123', $body['data']['certificate']);
+        self::assertStringContainsString('plesk-dns-sync', (string) $body['comment']);
+    }
 }

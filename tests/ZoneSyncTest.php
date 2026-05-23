@@ -279,4 +279,25 @@ final class ZoneSyncTest extends TestCase
         self::assertCount(0, $plan->creates);
         self::assertSame(5061, $plan->updates[0]->patchPayload()['data']['port']);
     }
+
+    public function testTlsaRecordCertificateChangeIsAnUpdate(): void
+    {
+        // The exact DANE rotate scenario: same record, new certificate hash.
+        $desired = new Record(
+            'TLSA', '_443._tcp.example.com', '3 1 1 newhash', 3600,
+            null, null, null, null,
+            ['usage' => 3, 'selector' => 1, 'matching_type' => 1, 'certificate' => 'newhash']
+        );
+        $existing = new Record(
+            'TLSA', '_443._tcp.example.com', '3 1 1 oldhash', 3600,
+            null, 'tlsa1', null, null,
+            ['usage' => 3, 'selector' => 1, 'matching_type' => 1, 'certificate' => 'oldhash']
+        );
+
+        $plan = ZoneSync::plan([$desired], [$existing], ['managedIds' => ['tlsa1']]);
+
+        self::assertCount(1, $plan->updates);
+        self::assertCount(0, $plan->creates);
+        self::assertSame('newhash', $plan->updates[0]->patchPayload()['data']['certificate']);
+    }
 }
