@@ -76,6 +76,30 @@ One-way, non-destructive Plesk → Cloudflare DNS sync.
       Cloudflare-owned, which is what keeps the sync non-destructive
 - [ ] Submit to the Plesk Extensions Catalog
 
+## v1.0 — multi-tenant / customer self-service
+
+The extension is currently admin-only. v1.0 opens it up so hosting providers
+can sell Cloudflare DNS Sync as a per-customer offering — provisioned and
+billed through WHMCS, used directly by the domain owner.
+
+- [ ] **Per-domain entitlement state.** A new layer alongside the existing
+      `enabled_domains` activation list: `entitled_<domain>` decides whether
+      the domain owner sees the sync toggle at all. Activation gates *syncing*;
+      entitlement gates *visibility*.
+- [ ] **Customer-area UI.** A scoped per-customer view of the extension —
+      same toggle UX as the admin page, but listing only the customer's own
+      domains and only those they're entitled to.
+- [ ] **Token-authenticated HTTPS API.** A new controller endpoint
+      (`POST /api/entitlement`) accepting a Bearer token and a payload of
+      `{ domain, entitled, autoActivate }` so any external system can grant
+      or revoke entitlement for a specific domain.
+- [ ] **WHMCS provisioning module.** A separate package living in WHMCS's
+      `modules/addons/` (or `servers/`), with admin config for the
+      extension's API token and Plesk URL. Order-complete hook grants
+      entitlement (and optionally auto-activates); suspend hook revokes
+      visibility; cancel hook revokes entitlement entirely. The Cloudflare
+      zone is left intact on revocation — non-destructive throughout.
+
 ## Beyond Plesk
 
 - [ ] DirectAdmin adapter, reusing the panel-agnostic `Cloudflare\` core
