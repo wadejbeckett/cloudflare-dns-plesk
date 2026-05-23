@@ -223,6 +223,34 @@ final class PleskPayloadTest extends TestCase
         self::assertSame('.', $records[0]->data['target']);
     }
 
+    public function testTriggerHostRecordsAreSilentlyDropped(): void
+    {
+        // The extension uses `_cfdns-trigger.<domain>` as its own
+        // single-zone-sync trigger. Records under that prefix must never
+        // sync to Cloudflare AND must not appear in the "skipped" report —
+        // they're an internal mechanism, invisible to the operator.
+        $json = (string) json_encode([
+            [
+                'command' => 'update',
+                'zone' => [
+                    'name' => 'example.com.',
+                    'soa' => ['ttl' => 3600],
+                    'rr' => [
+                        ['host' => '_cfdns-trigger.example.com.', 'type' => 'TXT', 'value' => 'cfdns-trigger', 'opt' => ''],
+                        ['host' => 'real.example.com.', 'type' => 'A', 'value' => '1.2.3.4', 'opt' => ''],
+                    ],
+                ],
+            ],
+        ]);
+
+        $result = Payload::parse($json);
+
+        // Only the real A record makes it through; the trigger is invisible.
+        self::assertCount(1, $result['operations'][0]->records);
+        self::assertSame('A', $result['operations'][0]->records[0]->type);
+        self::assertSame([], $result['skipped']);
+    }
+
     public function testNullMxRecordKeepsItsDotTarget(): void
     {
         // RFC 7505: "MX 0 ." declares the domain accepts no mail — the bare

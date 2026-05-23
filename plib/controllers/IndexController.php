@@ -92,16 +92,24 @@ class IndexController extends pm_Controller_Action
             return;
         }
 
-        // Activating syncs the domain. We fire `--sync-all-zones` in the
-        // BACKGROUND so this AJAX returns immediately. Otherwise the call
-        // would block for as long as Plesk takes to walk every zone on the
-        // server (60+ seconds on a multi-tenant box like neo) — leaving the
-        // browser hanging and the UI stuck on "Syncing…". The client polls
-        // domainStatusAction for the eventual result.
+        // Activating syncs the domain. We trigger a SINGLE-ZONE backend
+        // invocation by briefly adding then removing a marker TXT under our
+        // reserved `_cfdns-trigger.` host — every `plesk bin dns --add`/`--del`
+        // fires the backend for just *that* one zone (~5 s), whereas
+        // `--sync-all-zones` would walk every zone on the server (60+ s on a
+        // multi-tenant box like neo). The marker is filtered out by
+        // Payload::parse, so it never reaches Cloudflare.
         pm_Settings::set('status_' . $domain, '');
+        $domainArg = escapeshellarg($domain);
+        $cmd = sprintf(
+            '(plesk bin dns --add %1$s -txt cfdns-trigger -domain _cfdns-trigger '
+                . '&& plesk bin dns --del %1$s -txt cfdns-trigger -domain _cfdns-trigger) '
+                . '< /dev/null > /dev/null 2>&1 &',
+            $domainArg
+        );
         $execOutput = [];
         $execReturn = -1;
-        @exec('plesk bin dns --sync-all-zones < /dev/null > /dev/null 2>&1 &', $execOutput, $execReturn);
+        @exec($cmd, $execOutput, $execReturn);
         if ($execReturn !== 0) {
             pm_Settings::set('status_' . $domain, json_encode([
                 'ok' => false,

@@ -23,6 +23,14 @@ final class Payload
     private const PROVIDER_MANAGED_TYPES = ['SOA', 'NS'];
 
     /**
+     * Host-name prefix used by the extension's own activation trigger — a
+     * marker TXT briefly added then removed on toggle-ON to fire the backend
+     * for just one zone. Records under this prefix are silently dropped so
+     * they never reach Cloudflare.
+     */
+    public const TRIGGER_HOST_PREFIX = '_cfdns-trigger.';
+
+    /**
      * @return array{operations: ZoneOperation[], skipped: string[]}
      *
      * @throws \RuntimeException when the payload is not a JSON array
@@ -68,12 +76,16 @@ final class Payload
                 }
 
                 $type = strtoupper(trim((string) ($rr['type'] ?? '')));
+                $host = DnsName::normalise((string) ($rr['host'] ?? ''));
 
+                if (str_starts_with($host, self::TRIGGER_HOST_PREFIX)) {
+                    continue; // our own activation trigger — never sync
+                }
                 if (in_array($type, self::PROVIDER_MANAGED_TYPES, true)) {
                     continue; // Cloudflare owns SOA / NS
                 }
                 if (!in_array($type, self::SUPPORTED_TYPES, true)) {
-                    $skipped[] = trim($type . ' ' . DnsName::normalise((string) ($rr['host'] ?? '')));
+                    $skipped[] = trim($type . ' ' . $host);
                     continue;
                 }
 
