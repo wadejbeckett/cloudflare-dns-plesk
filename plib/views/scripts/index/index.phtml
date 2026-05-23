@@ -64,7 +64,7 @@
                 </label>
             </td>
             <td class="cfdns-status cfdns-status-<?php echo $d['pending'] ? 'muted' : $d['status']['class']; ?>"><?php
-                echo htmlspecialchars($d['pending'] ? 'Syncing…' : $d['status']['text']);
+                echo htmlspecialchars($d['pending'] ? 'Syncing… please wait' : $d['status']['text']);
             ?></td>
         </tr>
     <?php endforeach; ?>
@@ -157,18 +157,17 @@
     }
 
     // Poll a domain's status while its background sync runs. The toggle stays
-    // disabled until polling either lands a final status or times out, so the
-    // user can't interrupt the sync mid-flight.
+    // disabled until polling lands a *real* final status — we never give up
+    // mid-flight, so the operator can't be told a sync is finished when it
+    // isn't. (A page reload always resets the cycle if something has gone
+    // genuinely wrong server-side.)
     function pollStatus(row, checkbox, cell) {
         if (!cell) { cell = row.querySelector('.cfdns-status'); }
         var domain = row.getAttribute('data-domain');
-        var tries = 0;
-        var maxTries = 60;   // 60 × 2s = 2 minutes — generous for busy servers
-        cell.textContent = 'Syncing…';
+        cell.textContent = 'Syncing… please wait';
         cell.className = 'cfdns-status cfdns-status-muted';
         function done() { if (checkbox) { checkbox.disabled = false; } }
         (function tick() {
-            tries++;
             fetch(domainStatusUrl + '?domain=' + encodeURIComponent(domain), {
                 credentials: 'same-origin',
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -178,20 +177,14 @@
                 if (res && res.success && !res.pending) {
                     setStatus(cell, res.status);
                     done();
-                } else if (tries < maxTries) {
-                    setTimeout(tick, 2000);
                 } else {
-                    setStatus(cell, { text: 'Still syncing — refresh the page to update', 'class': 'muted' });
-                    done();
+                    // Still pending — keep polling. Toggle stays disabled.
+                    setTimeout(tick, 2000);
                 }
             })
             .catch(function () {
-                if (tries < maxTries) {
-                    setTimeout(tick, 2000);
-                } else {
-                    setStatus(cell, { text: 'Status unknown — refresh the page', 'class': 'muted' });
-                    done();
-                }
+                // Transient network blip — keep trying.
+                setTimeout(tick, 2000);
             });
         })();
     }
@@ -201,7 +194,7 @@
     // polling — so the operator can't interrupt a sync midway by clicking again.
     function fireToggle(row, checkbox, cell, on) {
         checkbox.disabled = true;
-        cell.textContent = on ? 'Syncing…' : 'Updating…';
+        cell.textContent = on ? 'Syncing… please wait' : 'Updating…';
         cell.className = 'cfdns-status cfdns-status-muted';
         post(toggleDomainUrl, { domain: row.getAttribute('data-domain'), enabled: on ? '1' : '0' })
             .then(function (res) {
