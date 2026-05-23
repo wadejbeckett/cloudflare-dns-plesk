@@ -18,8 +18,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 8.0 = composer.json floor; 8.3 = the PHP Plesk Obsidian actually ships.
-        php: ['8.0', '8.3']
+        # 8.0 = composer.json floor; 8.3 = the PHP Plesk Obsidian currently
+        # ships; 8.4 and 8.5 = forward-looking, so the extension stays ready
+        # as Plesk bumps its bundled PHP.
+        php: ['8.0', '8.3', '8.4', '8.5']
     steps:
       - uses: actions/checkout@v4
 
