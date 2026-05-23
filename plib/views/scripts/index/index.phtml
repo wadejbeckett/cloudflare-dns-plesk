@@ -17,6 +17,24 @@
 .cfdns-autoenable { margin: 14px 0 4px; }
 .cfdns-autoenable .cfdns-text { margin-left: 10px; }
 .cfdns-section { margin-top: 24px; }
+
+/* Activation confirmation modal */
+.cfdns-modal { position: fixed; inset: 0; z-index: 9999; display: none; }
+.cfdns-modal[data-open="1"] { display: block; }
+.cfdns-modal__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.4); }
+.cfdns-modal__content { position: relative; background: #fff; max-width: 560px; margin: 80px auto; padding: 22px 26px; border-radius: 6px; box-shadow: 0 8px 28px rgba(0,0,0,0.22); }
+.cfdns-modal__content h3 { margin: 0 0 10px; }
+.cfdns-modal__intro { color: #444; margin: 0 0 12px; }
+.cfdns-modal__checklist { list-style: none; padding: 0; margin: 0 0 12px; }
+.cfdns-modal__checklist li { padding: 8px 0; line-height: 1.45; }
+.cfdns-modal__checklist input[type="checkbox"] { margin-right: 8px; vertical-align: top; margin-top: 4px; }
+.cfdns-modal__note { color: #777; font-size: 0.9em; margin: 12px 0 0; }
+.cfdns-modal__buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+.cfdns-modal__buttons button { padding: 8px 16px; border: 1px solid #c0c0c0; border-radius: 4px; cursor: pointer; background: #fff; font-size: 0.95em; }
+.cfdns-modal__buttons button[disabled] { opacity: 0.5; cursor: not-allowed; }
+.cfdns-modal__buttons .cfdns-modal__proceed { background: #3a9c3a; color: #fff; border-color: #2c7a2c; }
+.cfdns-modal__buttons .cfdns-modal__proceed[disabled] { background: #c0c0c0; color: #fff; border-color: #b0b0b0; }
+.cfdns-modal__buttons .cfdns-modal__cancel:hover { background: #f1f1f1; }
 </style>
 
 <p>
@@ -62,6 +80,36 @@
         <span class="cfdns-slider"></span>
     </label>
     <span class="cfdns-text">Auto-enable new domains — a domain added in Plesk starts syncing automatically.</span>
+</div>
+
+<!-- Activation confirmation modal: shown before any domain activation so that
+     the operator can't accidentally activate a DNSSEC-signed domain or one
+     whose registrar nameservers haven't been pointed at Cloudflare. -->
+<div id="cfdns-activate-modal" class="cfdns-modal" aria-hidden="true" role="dialog" aria-labelledby="cfdns-activate-title">
+    <div class="cfdns-modal__backdrop"></div>
+    <div class="cfdns-modal__content">
+        <h3 id="cfdns-activate-title">Activate <span class="cfdns-modal__domain">domain</span>?</h3>
+        <p class="cfdns-modal__intro">Before this domain is pushed to Cloudflare, please confirm the migration prerequisites have been handled at the registrar:</p>
+        <ul class="cfdns-modal__checklist">
+            <li>
+                <label>
+                    <input type="checkbox" class="cfdns-modal__confirm">
+                    <strong>DNSSEC.</strong> I've checked Plesk → <em>Domains → [this domain] → DNSSEC</em>. If the domain is signed, I've disabled DNSSEC in Plesk <strong>and</strong> removed the DS record at the registrar — and allowed ~1 hour for the registry to propagate before continuing.
+                </label>
+            </li>
+            <li>
+                <label>
+                    <input type="checkbox" class="cfdns-modal__confirm">
+                    <strong>Nameservers.</strong> I will update (or have updated) the nameservers at the registrar to point at Cloudflare for this domain — without that, the synced records won't be authoritative.
+                </label>
+            </li>
+        </ul>
+        <p class="cfdns-modal__note">Activation pushes records into Cloudflare immediately; the records only take effect once the registrar's nameservers point there and any old DNSSEC DS records have been cleared.</p>
+        <div class="cfdns-modal__buttons">
+            <button type="button" class="cfdns-modal__cancel">Cancel</button>
+            <button type="button" class="cfdns-modal__proceed" disabled>Activate and sync</button>
+        </div>
+    </div>
 </div>
 
 <script type="text/javascript">
@@ -138,6 +186,79 @@
         })();
     }
 
+    // Run the actual toggle AJAX after the (off) path or after the modal-confirmed (on) path.
+    function fireToggle(row, checkbox, cell, on) {
+        checkbox.disabled = true;
+        cell.textContent = on ? 'Syncing…' : 'Updating…';
+        cell.className = 'cfdns-status cfdns-status-muted';
+        post(toggleDomainUrl, { domain: row.getAttribute('data-domain'), enabled: on ? '1' : '0' })
+            .then(function (res) {
+                if (!res || !res.success) {
+                    throw new Error(res && res.message ? res.message : 'Request failed');
+                }
+                if (res.pending) {
+                    pollStatus(row);
+                } else {
+                    setStatus(cell, res.status);
+                }
+            })
+            .catch(function (err) {
+                checkbox.checked = !on;
+                setStatus(cell, { text: 'Error: ' + err.message, 'class': 'error' });
+            })
+            .then(function () { checkbox.disabled = false; });
+    }
+
+    // --- Activation confirmation modal ------------------------------------
+    // Surfaces DNSSEC + registrar-NS prerequisites the operator must
+    // acknowledge before a domain is activated. See ROADMAP.md (DNSSEC
+    // awareness) for the eventual programmatic detection plan.
+    var modal = document.getElementById('cfdns-activate-modal');
+    function showActivationModal(row, checkbox, cell) {
+        var domain = row.getAttribute('data-domain');
+        modal.querySelector('.cfdns-modal__domain').textContent = domain;
+
+        var confirms = modal.querySelectorAll('.cfdns-modal__confirm');
+        var proceedBtn = modal.querySelector('.cfdns-modal__proceed');
+        var cancelBtn = modal.querySelector('.cfdns-modal__cancel');
+
+        // Reset state every time it opens.
+        Array.prototype.forEach.call(confirms, function (cb) { cb.checked = false; });
+        proceedBtn.disabled = true;
+
+        function refreshProceed() {
+            var allChecked = Array.prototype.every.call(confirms, function (cb) { return cb.checked; });
+            proceedBtn.disabled = !allChecked;
+        }
+        function cleanup() {
+            modal.setAttribute('data-open', '0');
+            modal.setAttribute('aria-hidden', 'true');
+            Array.prototype.forEach.call(confirms, function (cb) { cb.removeEventListener('change', refreshProceed); });
+            proceedBtn.removeEventListener('click', onProceed);
+            cancelBtn.removeEventListener('click', onCancel);
+            document.removeEventListener('keydown', onKey);
+        }
+        function onProceed() {
+            cleanup();
+            fireToggle(row, checkbox, cell, true);
+        }
+        function onCancel() {
+            cleanup();
+            checkbox.checked = false; // revert; the user backed out
+        }
+        function onKey(e) {
+            if (e.key === 'Escape') { onCancel(); }
+        }
+
+        Array.prototype.forEach.call(confirms, function (cb) { cb.addEventListener('change', refreshProceed); });
+        proceedBtn.addEventListener('click', onProceed);
+        cancelBtn.addEventListener('click', onCancel);
+        document.addEventListener('keydown', onKey);
+
+        modal.setAttribute('data-open', '1');
+        modal.setAttribute('aria-hidden', 'false');
+    }
+
     var rows = document.querySelectorAll('.cfdns-domains tr[data-domain]');
     Array.prototype.forEach.call(rows, function (row) {
         var checkbox = row.querySelector('.cfdns-domain-toggle');
@@ -145,25 +266,13 @@
 
         checkbox.addEventListener('change', function () {
             var on = checkbox.checked;
-            checkbox.disabled = true;
-            cell.textContent = on ? 'Syncing…' : 'Updating…';
-            cell.className = 'cfdns-status cfdns-status-muted';
-            post(toggleDomainUrl, { domain: row.getAttribute('data-domain'), enabled: on ? '1' : '0' })
-                .then(function (res) {
-                    if (!res || !res.success) {
-                        throw new Error(res && res.message ? res.message : 'Request failed');
-                    }
-                    if (res.pending) {
-                        pollStatus(row);
-                    } else {
-                        setStatus(cell, res.status);
-                    }
-                })
-                .catch(function (err) {
-                    checkbox.checked = !on;
-                    setStatus(cell, { text: 'Error: ' + err.message, 'class': 'error' });
-                })
-                .then(function () { checkbox.disabled = false; });
+            if (on) {
+                // Activating: gate behind the migration-prerequisites modal.
+                showActivationModal(row, checkbox, cell);
+            } else {
+                // Deactivating: instant, no gate.
+                fireToggle(row, checkbox, cell, false);
+            }
         });
 
         // A domain already mid-sync when the page loaded — keep polling.

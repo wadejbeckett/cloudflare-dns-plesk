@@ -1,6 +1,6 @@
 # Roadmap
 
-High-level direction for the project. Granular work items are tracked as
+High-level direction for the project. Granular work items live in
 [GitHub Issues](https://github.com/wadejbeckett/cloudflare-dns-plesk/issues),
 grouped into version **Milestones**.
 
@@ -21,15 +21,52 @@ One-way, non-destructive Plesk → Cloudflare DNS sync.
 - [x] Install / usage documentation in the README
 - [x] Tag the release
 
-## v0.2.0 — usability
+## v0.2.0 — broader record-type support ✅
 
-- [ ] Re-add a "Resync all domains" action — force a full re-push of every
-      activated domain
-- [x] Broader record-type support: `SRV` and `CAA`
-- [ ] Surface each domain's Cloudflare-assigned nameservers in the UI
+- [x] Add `SRV` and `CAA` record support (structured `data` object)
+
+## v0.3.0 — DANE / TLSA support ✅
+
+- [x] Add `TLSA` record support — surfaced by the `neo` pilot
+      (6 TLSA records on `wadejbeckett.com` for mail DANE)
+
+## v0.4.0 — operational maturity 🔨
+
+- [x] **GitHub Actions: CI + release publishing.** PHPUnit on every push and
+      pull request across PHP 8.0/8.3/8.4/8.5. On a `vX.Y.Z` tag, build the
+      install zip and attach it to a GitHub Release — making installs a
+      `curl … | plesk bin extension --install` one-liner.
+- [x] **DNSSEC awareness — Phase 1** (UI guardrail). Activation now opens a
+      confirmation modal whose checklist forces the operator to acknowledge
+      DNSSEC state at the registrar **and** the nameserver-update step
+      before a domain can be activated. A Plesk-signed domain whose NS
+      moves to Cloudflare without removing the old registrar DS first
+      breaks DNS resolution for validating resolvers — this gate stops
+      that being a silent footgun.
+- [ ] **DNSSEC awareness — Phase 2** (programmatic detection). Read each
+      domain's DNSSEC state from Plesk's `dnssec` extension (its
+      `pm_Settings`/DB, or its PHP API) and surface it as a per-row badge.
+      Convert the generic checklist into a *targeted* warning that fires
+      only when the row is actually signed. Plesk does not include
+      DNSKEY/RRSIG/NSEC in the custom-backend payload, so this detection
+      can't come from the records data path.
+- [ ] **Activation UX — background the sync.** `toggleDomainAction` blocks
+      on `pm_ApiCli::call('dns', ['--sync-all-zones'])`, so the AJAX hangs
+      for ~1 s per record. Fire the sync in the background and return
+      immediately; the polling already exists.
+- [ ] **Operational docs.** Install (fresh) · update (in-place via the
+      auto-built release zip) · configure · activate a domain · sync one
+      domain (`--add`/`--del` trick) · sync all (`--sync-all-zones`,
+      noting it walks every zone) · uninstall · log location · common
+      errors. Either expand the README or split out an `OPERATIONS.md`.
 
 ## Later
 
+- [ ] Re-add a "Resync all domains" action — force a re-push for every
+      activated domain — on its own page.
+- [ ] Surface each domain's Cloudflare-assigned nameservers in the UI so
+      the registrar-NS update step is right next to the toggle.
+- [ ] File remaining work as GitHub Issues / Milestones for proper tracking.
 - [ ] Optional "delete the Cloudflare zone when the domain is removed in
       Plesk" (today the zone is deliberately left intact)
 - [ ] Domain aliases and standalone subdomain zones
