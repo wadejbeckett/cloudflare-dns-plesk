@@ -1,0 +1,60 @@
+name: CI + Release
+
+# Runs PHPUnit on every push to `main` and every pull request.
+# On a `vX.Y.Z` tag push, also builds the install zip and attaches it to a
+# GitHub Release — so deploys become a one-liner `curl … | plesk bin extension`.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: PHPUnit (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 8.0 = composer.json floor; 8.3 = the PHP Plesk Obsidian actually ships.
+        php: ['8.0', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: curl, json
+          coverage: none
+
+      - name: Install dev dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run PHPUnit
+        run: vendor/bin/phpunit
+
+  release:
+    name: Build + publish release zip
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required for softprops/action-gh-release to publish
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version (strip leading 'v')
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build install package
+        run: zip -r "cloudflare-dns-sync-${{ steps.version.outputs.version }}.zip" meta.xml plib htdocs
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: cloudflare-dns-sync-*.zip
+          generate_release_notes: true
