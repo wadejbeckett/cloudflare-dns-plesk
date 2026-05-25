@@ -23,18 +23,3 @@ try {
     echo 'Failed to register the Cloudflare DNS backend: ' . $e->getMessage() . "\n";
     exit(1);
 }
-
-// Registering a custom DNS backend appears to auto-disable Plesk's
-// `slave-dns-manager` extension — Plesk assumes DNS now lives at a third
-// party and that BIND-slave management is no longer applicable. But this
-// extension is *per-domain*: non-activated domains still rely on local
-// BIND, and their zones must continue replicating to any configured
-// secondaries (including for Let's Encrypt DNS-01 challenges, which the
-// LE validators may resolve against those slaves). So re-enable it
-// explicitly. If `slave-dns-manager` isn't installed at all, this call
-// fails harmlessly and post-install continues.
-try {
-    pm_ApiCli::call('extension', ['--enable', 'slave-dns-manager']);
-} catch (pm_Exception $e) {
-    // Not installed, or already enabled — nothing to do.
-}
