@@ -48,7 +48,7 @@ directly.
 1. **Build the package** from a checkout of this repository:
 
    ```sh
-   zip -r cloudflare-dns-sync.zip meta.xml plib htdocs
+   zip -r cloudflare-dns-sync.zip meta.xml plib htdocs _meta
    ```
 
 2. **Install it** — in Plesk: **Extensions → My Extensions → Upload Extension**,

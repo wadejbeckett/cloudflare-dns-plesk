@@ -118,6 +118,16 @@ final class Record
             return false;
         }
 
+        // sameValue strips outer quotes for TXT equivalence so we don't
+        // false-pair or duplicate-create around adoption. For the "do we
+        // need to call the API?" question we want stricter equality: a
+        // CF-stored `foo` for a Plesk-supplied `"foo"` should PATCH so
+        // the canonical (quoted) form lands in Cloudflare and CF's
+        // "missing double-quotes" warning clears.
+        if ($this->type === 'TXT' && $this->content !== $desired->content) {
+            return false;
+        }
+
         // Cloudflare forces proxied records to TTL "auto", so TTL is not a
         // meaningful difference for them.
         if ($this->proxied === true) {

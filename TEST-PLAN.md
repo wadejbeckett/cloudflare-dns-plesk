@@ -67,3 +67,12 @@ Plesk box and a live Cloudflare zone.
 | 6.1 | In-place upgrade (`plesk bin extension --install <new-zip>` over an existing install) | Custom DNS backend registration is **never** lost. A DNS change made immediately after the upgrade still fires `sync-backend.php` and reaches Cloudflare. `sync.log` shows continuous activity across the upgrade. | ⬜ |
 | 6.2 | True uninstall (`plesk bin extension --uninstall cloudflare-dns-sync`) | Within ~2 min the deferred-disable script in `/tmp` notices the handler is gone and runs `plesk bin server_dns --disable-custom-backend`. Plesk DNS returns to its built-in path with no manual cleanup. | ⬜ |
 | 6.3 | Uninstall followed by reinstall before the 2 min window elapses | Deferred script sees the handler reappear and stands down without disabling. Backend registration survives the round-trip. | ⬜ |
+
+## 7. Resync actions (v0.4.11)
+
+| # | Scenario | Expected | Status |
+|---|---|---|---|
+| 7.1 | Click the per-row refresh icon on an activated domain | Row goes through the normal "Resyncing… → Synced — N records" cycle. The toggle stays in its "on" position. `sync.log` shows one entry for the domain. | ⬜ |
+| 7.2 | Per-row refresh icon is hidden for inactive rows | Icon is only visible (display: inline-block) when the row's toggle is on. Toggling on shows it; toggling off hides it again. | ⬜ |
+| 7.3 | Click "Resync all activated domains" with N activated | All N rows show "Resyncing… please wait" simultaneously; each resolves independently as its individual sync completes. Button is disabled during the trigger phase, re-enabled after triggers fire. | ⬜ |
+| 7.4 | Plesk extension icon | Orange cloud with white sync arrow shows on the Plesk Extensions page (instead of the default lego placeholder). Visible at 32 px and 64 px renderings. | ⬜ |

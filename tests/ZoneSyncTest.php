@@ -216,18 +216,55 @@ final class ZoneSyncTest extends TestCase
         self::assertSame(7200, $plan->updates[0]->patchPayload()['ttl']);
     }
 
-    public function testTxtRecordQuotingDifferenceIsNotAFalseChange(): void
+    public function testQuotedTxtMatchingItsCloudflareEquivalentIsUnchanged(): void
     {
-        // Cloudflare may return TXT content wrapped in quotes; Plesk may not.
-        // Same TTL on both sides so only the quoting could trigger a diff.
+        // Post-v0.4.10 Plesk always wraps TXT in `"..."` (PleskDns\Payload).
+        // When Cloudflare's stored form has the same shape: nothing to do.
         $plan = ZoneSync::plan(
-            [$this->panel('TXT', 'example.com', 'v=spf1 -all', 3600)],
+            [$this->panel('TXT', 'example.com', '"v=spf1 -all"', 3600)],
             [$this->cf('r1', 'TXT', 'example.com', '"v=spf1 -all"', 3600, false)],
             ['managedIds' => ['r1']]
         );
 
         self::assertTrue($plan->isEmpty());
         self::assertCount(1, $plan->unchanged);
+    }
+
+    public function testLegacyUnquotedManagedTxtIsForciblyUpdatedToCanonicalForm(): void
+    {
+        // Legacy: a managed Cloudflare record stored UNQUOTED (created
+        // before v0.4.10 introduced quote-wrapping). Plesk now sends the
+        // canonical quoted form — sameValue() says they're equivalent so
+        // we don't false-pair or duplicate-create, but matches() must NOT
+        // mark it unchanged: a PATCH must fire to push the canonical shape
+        // and clear Cloudflare's "missing double-quotes" UI warning.
+        $plan = ZoneSync::plan(
+            [$this->panel('TXT', 'example.com', '"v=spf1 -all"', 3600)],
+            [$this->cf('r1', 'TXT', 'example.com', 'v=spf1 -all', 3600, false)],
+            ['managedIds' => ['r1']]
+        );
+
+        self::assertCount(1, $plan->updates);
+        self::assertCount(0, $plan->unchanged);
+        self::assertSame('"v=spf1 -all"', $plan->updates[0]->desired->content);
+    }
+
+    public function testAdoptedLegacyUnquotedTxtAlsoQueuesCanonicalUpdate(): void
+    {
+        // First sync against a zone holding a FOREIGN (no marker) unquoted
+        // TXT: adopt the record AND queue a content update so a single
+        // resync brings it into the canonical quoted form. Without the
+        // adoption-side update, foreign records would stay unquoted forever
+        // (adoption alone only stamps the marker, doesn't rewrite content).
+        $plan = ZoneSync::plan(
+            [$this->panel('TXT', 'example.com', '"v=spf1 -all"', 3600)],
+            [$this->cf('r1', 'TXT', 'example.com', 'v=spf1 -all', 3600, false)],
+            []
+        );
+
+        self::assertCount(1, $plan->adopted);
+        self::assertCount(1, $plan->updates);
+        self::assertSame('"v=spf1 -all"', $plan->updates[0]->desired->content);
     }
 
     public function testAcmeChallengeWithManualSiblingsUpdatesOnlyTheRenewedRecord(): void

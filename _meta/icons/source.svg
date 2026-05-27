@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+    <title>Cloudflare DNS Sync</title>
+    <!--
+        Cloud silhouette in Cloudflare's signature orange (#F38020) with a
+        white circular sync arrow overlaid on its face. The cloud is our
+        own shape — NOT Cloudflare's exact mark — so this stays under
+        nominative-fair-use for a "compatible with" integration rather
+        than impersonating their logo.
+    -->
+    <defs>
+        <linearGradient id="cloudGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#F8A864"/>
+            <stop offset="100%" stop-color="#F38020"/>
+        </linearGradient>
+    </defs>
+
+    <!-- Cloud body, filling most of the canvas with a small bottom
+         margin for visual balance. -->
+    <path
+        fill="url(#cloudGrad)"
+        d="M 36 104
+           C 19 104, 6 92, 6 75
+           C 6 60, 18 47, 33 47
+           C 36 33, 49 23, 64 23
+           C 81 23, 95 35, 98 52
+           C 100 51, 103 51, 105 51
+           C 117 51, 126 60, 126 72
+           C 126 84, 117 94, 105 94
+           C 105 99, 100 104, 94 104
+           L 36 104 Z"
+    />
+
+    <!-- Circular sync arrow centered on the cloud's face — a single
+         3/4-loop with a clear arrowhead. White-on-orange for high
+         contrast at every render size. -->
+    <g fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+        <!-- 270° arc (3/4 loop): from top, sweeping clockwise around to the right.
+             Center (66, 68), radius 22. -->
+        <path d="M 66 46
+                 A 22 22 0 1 1 44 68"/>
+        <!-- Arrowhead at the end of the arc (left side, pointing down/in). -->
+        <polyline points="36 60, 44 68, 52 60"/>
+    </g>
+</svg>

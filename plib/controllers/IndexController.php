@@ -50,6 +50,8 @@ class IndexController extends pm_Controller_Action
         $this->view->toggleDomainUrl = pm_Context::getActionUrl('index', 'toggle-domain');
         $this->view->toggleAutoenableUrl = pm_Context::getActionUrl('index', 'toggle-autoenable');
         $this->view->domainStatusUrl = pm_Context::getActionUrl('index', 'domain-status');
+        $this->view->resyncDomainUrl = pm_Context::getActionUrl('index', 'resync-domain');
+        $this->view->resyncAllUrl = pm_Context::getActionUrl('index', 'resync-all');
     }
 
     /**
@@ -92,31 +94,9 @@ class IndexController extends pm_Controller_Action
             return;
         }
 
-        // Activating syncs the domain. We trigger a SINGLE-ZONE backend
-        // invocation by briefly adding then removing a marker TXT under our
-        // reserved `_cfdns-trigger.` host — every `plesk bin dns --add`/`--del`
-        // fires the backend for just *that* one zone (~5 s), whereas
-        // `--sync-all-zones` would walk every zone on the server (60+ s on a
-        // busy multi-tenant box). The marker is filtered out by
-        // Payload::parse, so it never reaches Cloudflare.
-        pm_Settings::set('status_' . $domain, '');
-        $domainArg = escapeshellarg($domain);
-        $cmd = sprintf(
-            '(plesk bin dns --add %1$s -txt cfdns-trigger -domain _cfdns-trigger '
-                . '&& plesk bin dns --del %1$s -txt cfdns-trigger -domain _cfdns-trigger) '
-                . '< /dev/null > /dev/null 2>&1 &',
-            $domainArg
-        );
-        $execOutput = [];
-        $execReturn = -1;
-        @exec($cmd, $execOutput, $execReturn);
-        if ($execReturn !== 0) {
-            pm_Settings::set('status_' . $domain, json_encode([
-                'ok' => false,
-                'error' => 'Failed to start background sync (exit ' . $execReturn . ')',
-                'ts' => time(),
-            ]));
-        }
+        // Activating syncs the domain. Fire the background trigger and let
+        // the front-end poll for status (see triggerSync).
+        $this->triggerSync($domain);
 
         $status = $this->getDomainStatus($domain);
         $this->_helper->json([
@@ -124,6 +104,62 @@ class IndexController extends pm_Controller_Action
             'enabled' => true,
             'pending' => $status === null,
             'status' => $this->describeStatus(true, $status),
+        ]);
+    }
+
+    /**
+     * AJAX: resync a single already-activated domain. Fires the same
+     * single-zone trigger used on activation, then the front-end polls
+     * domain-status for the outcome. The activation modal is NOT shown —
+     * the domain is already on the activation list, so the DNSSEC /
+     * registrar-NS prerequisites were acknowledged on the original
+     * activation.
+     */
+    public function resyncDomainAction()
+    {
+        if (!$this->getRequest()->isPost()) {
+            throw new pm_Exception('Permission denied');
+        }
+
+        $domain = trim((string) $this->getRequest()->getParam('domain'));
+        if (!in_array($domain, $this->listDomainNames(), true)) {
+            $this->_helper->json(['success' => false, 'message' => 'Unknown domain.']);
+            return;
+        }
+        if (!in_array($domain, $this->getEnabledDomains(), true)) {
+            $this->_helper->json(['success' => false, 'message' => 'Domain is not activated for sync.']);
+            return;
+        }
+
+        $this->triggerSync($domain);
+        $status = $this->getDomainStatus($domain);
+
+        $this->_helper->json([
+            'success' => true,
+            'pending' => $status === null,
+            'status' => $this->describeStatus(true, $status),
+        ]);
+    }
+
+    /**
+     * AJAX: resync every activated domain. Fires one background trigger
+     * per domain; the front-end then polls each row independently via the
+     * existing domain-status endpoint.
+     */
+    public function resyncAllAction()
+    {
+        if (!$this->getRequest()->isPost()) {
+            throw new pm_Exception('Permission denied');
+        }
+
+        $enabled = $this->getEnabledDomains();
+        foreach ($enabled as $domain) {
+            $this->triggerSync($domain);
+        }
+
+        $this->_helper->json([
+            'success' => true,
+            'domains' => array_values($enabled),
         ]);
     }
 
@@ -291,6 +327,39 @@ class IndexController extends pm_Controller_Action
     private function isAutoEnabled()
     {
         return ((string) pm_Settings::get('auto_enable_new_domains', '')) !== '';
+    }
+
+    /**
+     * Fire a single-zone backend invocation in the background for $domain
+     * and clear its recorded status so the front-end's poll sees "pending"
+     * until the sync completes.
+     *
+     * Trick: every `plesk bin dns --add`/`--del` fires the custom DNS
+     * backend for just that one zone (~5 s), whereas `--sync-all-zones`
+     * walks every zone on the server (60+ s on a busy multi-tenant box).
+     * The marker TXT is filtered out by Payload::parse so it never reaches
+     * Cloudflare.
+     */
+    private function triggerSync($domain)
+    {
+        pm_Settings::set('status_' . $domain, '');
+        $domainArg = escapeshellarg($domain);
+        $cmd = sprintf(
+            '(plesk bin dns --add %1$s -txt cfdns-trigger -domain _cfdns-trigger '
+                . '&& plesk bin dns --del %1$s -txt cfdns-trigger -domain _cfdns-trigger) '
+                . '< /dev/null > /dev/null 2>&1 &',
+            $domainArg
+        );
+        $execOutput = [];
+        $execReturn = -1;
+        @exec($cmd, $execOutput, $execReturn);
+        if ($execReturn !== 0) {
+            pm_Settings::set('status_' . $domain, json_encode([
+                'ok' => false,
+                'error' => 'Failed to start background sync (exit ' . $execReturn . ')',
+                'ts' => time(),
+            ]));
+        }
     }
 
     /** The last recorded sync outcome for a domain, or null if never synced. */

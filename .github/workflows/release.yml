@@ -53,7 +53,12 @@ jobs:
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Build install package
-        run: zip -r "cloudflare-dns-sync-${{ steps.version.outputs.version }}.zip" meta.xml plib htdocs
+        # source.svg is a build artefact (used to author the icons); the
+        # PNGs are what Plesk reads at runtime.
+        run: |
+          zip -r "cloudflare-dns-sync-${{ steps.version.outputs.version }}.zip" \
+            meta.xml plib htdocs _meta \
+            -x '_meta/icons/source.svg'
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

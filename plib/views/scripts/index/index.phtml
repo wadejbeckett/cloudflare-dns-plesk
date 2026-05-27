@@ -18,6 +18,20 @@
 .cfdns-autoenable .cfdns-text { margin-left: 10px; }
 .cfdns-section { margin-top: 24px; }
 
+/* Per-row "resync just this one" icon button. Visible only on activated
+   rows (the JS adds the visible class on initial render). */
+.cfdns-resync { background: transparent; border: 1px solid transparent; padding: 4px; cursor: pointer; border-radius: 4px; color: #777; display: none; vertical-align: middle; }
+.cfdns-resync:hover { color: #333; background: #f1f1f1; border-color: #ddd; }
+.cfdns-resync:disabled { opacity: 0.4; cursor: default; }
+.cfdns-resync svg { display: block; width: 16px; height: 16px; }
+.cfdns-domain-toggle:checked ~ .cfdns-toggle-wrapper .cfdns-resync,
+tr.cfdns-row-active .cfdns-resync { display: inline-block; }
+
+/* "Resync all activated" button below the table. */
+.cfdns-resync-all { margin: 8px 0 18px; padding: 8px 14px; font-size: 0.95em; border: 1px solid #c0c0c0; background: #fafafa; border-radius: 4px; cursor: pointer; }
+.cfdns-resync-all:hover { background: #f0f0f0; }
+.cfdns-resync-all:disabled { opacity: 0.5; cursor: default; }
+
 /* Activation confirmation modal */
 .cfdns-modal { position: fixed; inset: 0; z-index: 9999; display: none; }
 .cfdns-modal[data-open="1"] { display: block; }
@@ -55,13 +69,19 @@
 <table class="cfdns-domains">
     <tbody>
     <?php foreach ($this->domains as $d): ?>
-        <tr data-domain="<?php echo htmlspecialchars($d['name'], ENT_QUOTES); ?>" data-pending="<?php echo $d['pending'] ? '1' : '0'; ?>">
+        <tr data-domain="<?php echo htmlspecialchars($d['name'], ENT_QUOTES); ?>" data-pending="<?php echo $d['pending'] ? '1' : '0'; ?>"<?php echo $d['enabled'] ? ' class="cfdns-row-active"' : ''; ?>>
             <td class="cfdns-domain-name"><?php echo htmlspecialchars($d['name']); ?></td>
             <td>
                 <label class="cfdns-switch">
                     <input type="checkbox" class="cfdns-domain-toggle"<?php echo $d['enabled'] ? ' checked="checked"' : ''; ?>>
                     <span class="cfdns-slider"></span>
                 </label>
+                <button type="button" class="cfdns-resync" title="Resync this domain to Cloudflare now" aria-label="Resync this domain">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 12a9 9 0 1 1-3.5-7.1"/>
+                        <polyline points="21 4 21 10 15 10"/>
+                    </svg>
+                </button>
             </td>
             <td class="cfdns-status cfdns-status-<?php echo $d['pending'] ? 'muted' : $d['status']['class']; ?>"><?php
                 echo htmlspecialchars($d['pending'] ? 'Syncing… please wait' : $d['status']['text']);
@@ -70,6 +90,8 @@
     <?php endforeach; ?>
     </tbody>
 </table>
+
+<button type="button" class="cfdns-resync-all" id="cfdns-resync-all-btn">Resync all activated domains</button>
 <?php else: ?>
 <p>No domains on this server yet. Add a domain in Plesk, then return here to activate it.</p>
 <?php endif; ?>
@@ -133,6 +155,8 @@
     var toggleDomainUrl = <?php echo json_encode($this->toggleDomainUrl); ?>;
     var toggleAutoenableUrl = <?php echo json_encode($this->toggleAutoenableUrl); ?>;
     var domainStatusUrl = <?php echo json_encode($this->domainStatusUrl); ?>;
+    var resyncDomainUrl = <?php echo json_encode($this->resyncDomainUrl); ?>;
+    var resyncAllUrl = <?php echo json_encode($this->resyncAllUrl); ?>;
 
     function post(url, data) {
         var token = document.getElementById('form_forgery_protection_token');
@@ -266,13 +290,40 @@
         modal.setAttribute('aria-hidden', 'false');
     }
 
+    // Fire a one-off resync for an already-activated row. No modal — the
+    // domain is already on the activation list, so DNSSEC/NS prerequisites
+    // were acknowledged on the original activation.
+    function fireResync(row, checkbox, cell, resyncBtn) {
+        if (checkbox) { checkbox.disabled = true; }
+        if (resyncBtn) { resyncBtn.disabled = true; }
+        cell.textContent = 'Resyncing… please wait';
+        cell.className = 'cfdns-status cfdns-status-muted';
+        post(resyncDomainUrl, { domain: row.getAttribute('data-domain') })
+            .then(function (res) {
+                if (!res || !res.success) {
+                    throw new Error(res && res.message ? res.message : 'Resync failed');
+                }
+                pollStatus(row, checkbox, cell);
+            })
+            .catch(function (err) {
+                setStatus(cell, { text: 'Error: ' + err.message, 'class': 'error' });
+                if (checkbox) { checkbox.disabled = false; }
+            })
+            .then(function () {
+                if (resyncBtn) { resyncBtn.disabled = false; }
+            });
+    }
+
     var rows = document.querySelectorAll('.cfdns-domains tr[data-domain]');
     Array.prototype.forEach.call(rows, function (row) {
         var checkbox = row.querySelector('.cfdns-domain-toggle');
         var cell = row.querySelector('.cfdns-status');
+        var resyncBtn = row.querySelector('.cfdns-resync');
 
         checkbox.addEventListener('change', function () {
             var on = checkbox.checked;
+            // Show the per-row resync icon only when the row is active.
+            row.classList.toggle('cfdns-row-active', on);
             if (on) {
                 // Activating: gate behind the migration-prerequisites modal.
                 showActivationModal(row, checkbox, cell);
@@ -282,6 +333,12 @@
             }
         });
 
+        if (resyncBtn) {
+            resyncBtn.addEventListener('click', function () {
+                fireResync(row, checkbox, cell, resyncBtn);
+            });
+        }
+
         // A domain already mid-sync when the page loaded — keep polling and
         // hold the toggle locked until it resolves.
         if (row.getAttribute('data-pending') === '1') {
@@ -289,6 +346,44 @@
             pollStatus(row, checkbox, cell);
         }
     });
+
+    // "Resync all activated domains" button — fires one trigger per
+    // activated domain on the server; each row then polls independently.
+    var resyncAllBtn = document.getElementById('cfdns-resync-all-btn');
+    if (resyncAllBtn) {
+        resyncAllBtn.addEventListener('click', function () {
+            resyncAllBtn.disabled = true;
+            var originalLabel = resyncAllBtn.textContent;
+            resyncAllBtn.textContent = 'Triggering resync…';
+            post(resyncAllUrl, {})
+                .then(function (res) {
+                    if (!res || !res.success) {
+                        throw new Error(res && res.message ? res.message : 'Resync-all failed');
+                    }
+                    var domains = res.domains || [];
+                    resyncAllBtn.textContent = 'Resyncing ' + domains.length + ' domain(s)…';
+                    domains.forEach(function (domain) {
+                        var row = document.querySelector(
+                            '.cfdns-domains tr[data-domain="' + domain.replace(/"/g, '\\"') + '"]'
+                        );
+                        if (!row) { return; }
+                        var checkbox = row.querySelector('.cfdns-domain-toggle');
+                        var cell = row.querySelector('.cfdns-status');
+                        if (checkbox) { checkbox.disabled = true; }
+                        cell.textContent = 'Resyncing… please wait';
+                        cell.className = 'cfdns-status cfdns-status-muted';
+                        pollStatus(row, checkbox, cell);
+                    });
+                })
+                .catch(function (err) {
+                    alert('Resync all failed: ' + err.message);
+                })
+                .then(function () {
+                    resyncAllBtn.textContent = originalLabel;
+                    resyncAllBtn.disabled = false;
+                });
+        });
+    }
 
     var autoToggle = document.getElementById('cfdns-autoenable-toggle');
     if (autoToggle) {

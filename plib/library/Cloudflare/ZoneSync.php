@@ -123,11 +123,19 @@ final class ZoneSync
             }
 
             // Pass 3 — surplus desired records: adopt an identical foreign
-            // record if one exists, otherwise create.
+            // record if one exists, otherwise create. If the adopted
+            // record's literal content differs from what the panel now
+            // wants (a CF-stored unquoted TXT against our quote-wrapped
+            // form, say), also queue an update so the canonical shape
+            // lands in Cloudflare — otherwise the legacy "missing
+            // double-quotes" warning never clears even after a resync.
             for ($i = $pairs, $n = count($want); $i < $n; $i++) {
                 $twin = $adopt ? self::takeForeignTwin($foreignByKey, $key, $want[$i]) : null;
                 if ($twin !== null) {
                     $adopted[] = $twin;
+                    if ($twin->content !== $want[$i]->content) {
+                        $updates[] = new RecordUpdate($twin, $want[$i]);
+                    }
                 } else {
                     $creates[] = $want[$i];
                 }
