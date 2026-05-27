@@ -50,6 +50,12 @@ One-way, non-destructive Plesk → Cloudflare DNS sync.
       only when the row is actually signed. Plesk does not include
       DNSKEY/RRSIG/NSEC in the custom-backend payload, so this detection
       can't come from the records data path.
+
+      Built as a **soft dependency** on the `dnssec` extension (not
+      declared in `meta.xml`) — runtime probe, query when available, fall
+      back to Phase 1's generic checklist when it isn't. Plesk's DNSSEC
+      module is paid on "Web Admin" licences, so a hard dependency would
+      exclude valid installs.
 - [x] **Activation UX — background the sync** (v0.4.1). The AJAX no longer
       blocks on `plesk bin dns --sync-all-zones`; it fires in the background
       and returns immediately. The toggle stays disabled until polling either
@@ -71,6 +77,20 @@ One-way, non-destructive Plesk → Cloudflare DNS sync.
 - [ ] Optional "delete the Cloudflare zone when the domain is removed in
       Plesk" (today the zone is deliberately left intact)
 - [ ] Domain aliases and standalone subdomain zones
+- [ ] **Gate activation on Plesk-DNS-enabled state.** When DNS is off in
+      Plesk for a domain, the row should disable the toggle and explain
+      why. Without this, a customer using Cloudflare standalone could
+      have Plesk's default records (A, MX etc.) pushed into their
+      Cloudflare zone the moment Plesk DNS is re-enabled — alongside
+      their existing foreign records, polluting the zone. The marker
+      system prevents *deletion* of foreign records but not this
+      additive pollution.
+- [ ] **Soft sync mode (observe-only) — speculative.** A per-domain
+      "syncing but don't push" mode useful during migrations where
+      records are being handed from Cloudflare to Plesk (or vice versa)
+      and the operator wants to validate the diff before letting it
+      apply. Low confidence this is needed — left here so it's not
+      forgotten if a real use case emerges.
 - [ ] Localisation (currently English only)
 - [ ] Plesk-side proxy management — **deliberately deferred**; proxy stays
       Cloudflare-owned, which is what keeps the sync non-destructive
