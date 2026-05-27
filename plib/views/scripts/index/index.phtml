@@ -185,12 +185,17 @@ tr.cfdns-row-active .cfdns-resync { display: inline-block; }
     // mid-flight, so the operator can't be told a sync is finished when it
     // isn't. (A page reload always resets the cycle if something has gone
     // genuinely wrong server-side.)
-    function pollStatus(row, checkbox, cell) {
+    // onDone is called once polling resolves — used by per-row resync to
+    // re-enable its refresh icon, by resync-all to track completion, etc.
+    function pollStatus(row, checkbox, cell, onDone) {
         if (!cell) { cell = row.querySelector('.cfdns-status'); }
         var domain = row.getAttribute('data-domain');
         cell.textContent = 'Syncing… please wait';
         cell.className = 'cfdns-status cfdns-status-muted';
-        function done() { if (checkbox) { checkbox.disabled = false; } }
+        function done() {
+            if (checkbox) { checkbox.disabled = false; }
+            if (typeof onDone === 'function') { onDone(); }
+        }
         (function tick() {
             fetch(domainStatusUrl + '?domain=' + encodeURIComponent(domain), {
                 credentials: 'same-origin',
@@ -292,7 +297,9 @@ tr.cfdns-row-active .cfdns-resync { display: inline-block; }
 
     // Fire a one-off resync for an already-activated row. No modal — the
     // domain is already on the activation list, so DNSSEC/NS prerequisites
-    // were acknowledged on the original activation.
+    // were acknowledged on the original activation. The resync icon stays
+    // disabled until the poll lands a final status, so the operator can't
+    // re-click mid-sync.
     function fireResync(row, checkbox, cell, resyncBtn) {
         if (checkbox) { checkbox.disabled = true; }
         if (resyncBtn) { resyncBtn.disabled = true; }
@@ -303,13 +310,13 @@ tr.cfdns-row-active .cfdns-resync { display: inline-block; }
                 if (!res || !res.success) {
                     throw new Error(res && res.message ? res.message : 'Resync failed');
                 }
-                pollStatus(row, checkbox, cell);
+                pollStatus(row, checkbox, cell, function () {
+                    if (resyncBtn) { resyncBtn.disabled = false; }
+                });
             })
             .catch(function (err) {
                 setStatus(cell, { text: 'Error: ' + err.message, 'class': 'error' });
                 if (checkbox) { checkbox.disabled = false; }
-            })
-            .then(function () {
                 if (resyncBtn) { resyncBtn.disabled = false; }
             });
     }
@@ -349,6 +356,8 @@ tr.cfdns-row-active .cfdns-resync { display: inline-block; }
 
     // "Resync all activated domains" button — fires one trigger per
     // activated domain on the server; each row then polls independently.
+    // Button stays disabled until EVERY row's poll resolves, so the
+    // operator can't double-fire while a previous batch is still draining.
     var resyncAllBtn = document.getElementById('cfdns-resync-all-btn');
     if (resyncAllBtn) {
         resyncAllBtn.addEventListener('click', function () {
@@ -361,24 +370,41 @@ tr.cfdns-row-active .cfdns-resync { display: inline-block; }
                         throw new Error(res && res.message ? res.message : 'Resync-all failed');
                     }
                     var domains = res.domains || [];
+                    if (domains.length === 0) {
+                        resyncAllBtn.textContent = originalLabel;
+                        resyncAllBtn.disabled = false;
+                        return;
+                    }
                     resyncAllBtn.textContent = 'Resyncing ' + domains.length + ' domain(s)…';
+                    var pending = domains.length;
+                    function oneRowDone() {
+                        pending--;
+                        resyncAllBtn.textContent = 'Resyncing ' + pending + ' of ' + domains.length + '…';
+                        if (pending <= 0) {
+                            resyncAllBtn.textContent = originalLabel;
+                            resyncAllBtn.disabled = false;
+                        }
+                    }
                     domains.forEach(function (domain) {
                         var row = document.querySelector(
                             '.cfdns-domains tr[data-domain="' + domain.replace(/"/g, '\\"') + '"]'
                         );
-                        if (!row) { return; }
+                        if (!row) { oneRowDone(); return; }
                         var checkbox = row.querySelector('.cfdns-domain-toggle');
                         var cell = row.querySelector('.cfdns-status');
+                        var rowResyncBtn = row.querySelector('.cfdns-resync');
                         if (checkbox) { checkbox.disabled = true; }
+                        if (rowResyncBtn) { rowResyncBtn.disabled = true; }
                         cell.textContent = 'Resyncing… please wait';
                         cell.className = 'cfdns-status cfdns-status-muted';
-                        pollStatus(row, checkbox, cell);
+                        pollStatus(row, checkbox, cell, function () {
+                            if (rowResyncBtn) { rowResyncBtn.disabled = false; }
+                            oneRowDone();
+                        });
                     });
                 })
                 .catch(function (err) {
                     alert('Resync all failed: ' + err.message);
-                })
-                .then(function () {
                     resyncAllBtn.textContent = originalLabel;
                     resyncAllBtn.disabled = false;
                 });

@@ -96,6 +96,21 @@ One-way, non-destructive Plesk → Cloudflare DNS sync.
       Cloudflare-owned, which is what keeps the sync non-destructive
 - [ ] Submit to the Plesk Extensions Catalog
 
+## Later (continued)
+
+- [ ] **Suppress Plesk's "domain does not resolve" warning** for activated
+      domains. When Cloudflare's proxy is on, Plesk's built-in DNS check
+      finds the Cloudflare edge IP instead of the local server's, and
+      raises a false-positive notification. Investigate Plesk's
+      notification suppression APIs (per-domain ideal, server-wide as
+      fallback). No clean documented path yet — needs research.
+- [ ] **Absorb slave-DNS functionality (long-term direction).** Add a
+      per-domain "Sync target" toggle: Cloudflare / local secondaries
+      (ns1, ns2) / both. Where "local secondaries" is picked, write the
+      BIND notify directives ourselves (currently slave-dns-manager's
+      job). Pre-req: v0.6.0 origin-leak mitigation is in. Low priority
+      until users actually request the consolidation.
+
 ## v0.6.0 — close the slave-replication origin leak 🛡
 
 When a domain is activated for sync and the Cloudflare proxy is on, the
