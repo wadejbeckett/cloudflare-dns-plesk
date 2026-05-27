@@ -59,3 +59,11 @@ Plesk box and a live Cloudflare zone.
 | 5.6 | Cloudflare unreachable during a change | Graceful failure, logged, recoverable on next sync | ✅ |
 | 5.7 | Uninstall the extension | Custom DNS backend deregistered; Plesk DNS back to normal | ✅ |
 | 5.8 | Add a regular subdomain in Plesk (shares the parent's DNS zone) | The subdomain does **not** appear as its own row on the settings page — only main domains are listed. Its records still sync as part of the parent zone (covered by 5.3). | ⬜ |
+
+## 6. Extension lifecycle — survive upgrade, clean up on uninstall
+
+| # | Scenario | Expected | Status |
+|---|---|---|---|
+| 6.1 | In-place upgrade (`plesk bin extension --install <new-zip>` over an existing install) | Custom DNS backend registration is **never** lost. A DNS change made immediately after the upgrade still fires `sync-backend.php` and reaches Cloudflare. `sync.log` shows continuous activity across the upgrade. | ⬜ |
+| 6.2 | True uninstall (`plesk bin extension --uninstall cloudflare-dns-sync`) | Within ~2 min the deferred-disable script in `/tmp` notices the handler is gone and runs `plesk bin server_dns --disable-custom-backend`. Plesk DNS returns to its built-in path with no manual cleanup. | ⬜ |
+| 6.3 | Uninstall followed by reinstall before the 2 min window elapses | Deferred script sees the handler reappear and stands down without disabling. Backend registration survives the round-trip. | ⬜ |
