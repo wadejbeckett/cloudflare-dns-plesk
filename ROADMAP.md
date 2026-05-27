@@ -96,6 +96,27 @@ One-way, non-destructive Plesk → Cloudflare DNS sync.
       Cloudflare-owned, which is what keeps the sync non-destructive
 - [ ] Submit to the Plesk Extensions Catalog
 
+## v0.6.0 — close the slave-replication origin leak 🛡
+
+When a domain is activated for sync and the Cloudflare proxy is on, the
+origin Plesk IP is supposed to be hidden. But if Plesk's local BIND is
+still authoritative for the zone — and slave-dns-manager (or any other
+secondary DNS extension) replicates it to publicly-known secondaries —
+an attacker can query those secondaries directly and read the unproxied
+origin record, defeating the proxy entirely.
+
+- [ ] On activation: call `plesk bin dns --off <domain>` so local BIND
+      stops serving the zone. Records stay in Plesk's DB (our SDK read
+      keeps working); only the public-BIND path goes away. Cloudflare
+      becomes the sole authoritative source.
+- [ ] On deactivation: `plesk bin dns --on <domain>` to restore the
+      previous state.
+- [ ] One-time migration sweep on upgrade: turn off local DNS for every
+      already-activated domain.
+- [ ] Activation modal: add an explicit "Cloudflare-only DNS"
+      acknowledgement checklist item.
+- [ ] Document the behaviour change in README + CHANGES.md.
+
 ## v1.0 — multi-tenant / customer self-service
 
 The extension is currently admin-only. v1.0 opens it up so hosting providers
