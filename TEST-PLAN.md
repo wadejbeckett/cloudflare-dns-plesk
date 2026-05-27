@@ -58,3 +58,4 @@ Plesk box and a live Cloudflare zone.
 | 5.5 | Invalid API token configured | Handler fails gracefully (logged, non-zero exit); Plesk DNS not broken | ✅ |
 | 5.6 | Cloudflare unreachable during a change | Graceful failure, logged, recoverable on next sync | ✅ |
 | 5.7 | Uninstall the extension | Custom DNS backend deregistered; Plesk DNS back to normal | ✅ |
+| 5.8 | Add a regular subdomain in Plesk (shares the parent's DNS zone) | The subdomain does **not** appear as its own row on the settings page — only main domains are listed. Its records still sync as part of the parent zone (covered by 5.3). | ⬜ |

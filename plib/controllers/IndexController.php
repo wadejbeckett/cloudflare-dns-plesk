@@ -264,11 +264,17 @@ class IndexController extends pm_Controller_Action
         return $rows;
     }
 
-    /** All domain names on this server, sorted alphabetically. */
+    /** All main domains on this server, sorted alphabetically. */
     private function listDomainNames()
     {
+        // `true` = main domains only. Regular subdomains and domain aliases
+        // share the parent's DNS zone, so they have no zone of their own to
+        // sync — listing them here would either fail (Cloudflare rejects an
+        // overlapping zone in the same account) or just produce a row whose
+        // toggle does nothing. Standalone-subdomain-zones are a deliberate
+        // "Later" item on the roadmap.
         $names = [];
-        foreach (pm_Domain::getAllDomains() as $domain) {
+        foreach (pm_Domain::getAllDomains(true) as $domain) {
             $names[] = $domain->getName();
         }
         sort($names);
