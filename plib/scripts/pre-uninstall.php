@@ -21,11 +21,12 @@ foreach ($scheduler->listTasks() as $task) {
     }
 }
 
-// Defensive: release the Plesk custom-DNS-backend slot if a previous
-// v0.4.x version had claimed it. We never claim it in v0.5.0+, but a
-// long-lived install upgrading from v0.4.x may still be holding it.
-try {
-    pm_ApiCli::call('server_dns', ['--disable-custom-backend']);
-} catch (pm_Exception $e) {
-    // No backend registered — nothing to release.
-}
+// We do NOT touch the custom-DNS-backend slot. v0.5.0+ never claims it,
+// so on uninstall there is nothing of OURS to release — but calling
+// `--disable-custom-backend` blindly would evict whoever else is in the
+// slot (notably slave-dns-manager) and Plesk would auto-disable that
+// extension as a side effect. Admins upgrading from v0.4.x and then
+// uninstalling can release the slot manually with one command — see
+// README. The downside of leaving it alone: if v0.4.x had claimed it
+// and we never released, the slot points at a now-deleted handler. The
+// admin's fix: `plesk bin server_dns --disable-custom-backend`.

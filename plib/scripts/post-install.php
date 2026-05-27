@@ -52,22 +52,16 @@ try {
     exit(1);
 }
 
-// Defensive: release the Plesk custom-DNS-backend slot if a previous
-// v0.4.x version had claimed it. Without this, an upgrade from v0.4.x
-// would leave us holding the slot AND scheduled to poll — duplicating
-// the work and (worse) keeping slave-dns-manager broken.
+// We deliberately do NOT touch the custom-DNS-backend slot here. Earlier
+// versions called `server_dns --disable-custom-backend` defensively to
+// release the slot, but that turned out to be a hidden trap: when
+// slave-dns-manager (or any other DNS-backend extension) currently
+// holds the slot, our blanket "disable" silently evicts THEM and Plesk
+// auto-disables their extension as a side effect — exactly the
+// regression v0.5.x is supposed to prevent.
 //
-// We deliberately do NOT auto-re-enable slave-dns-manager here. While
-// v0.4.x's slot eviction left it disabled, force-re-enabling slave-dns-
-// manager on activated-for-sync domains reintroduces an origin-leak
-// risk: if the local BIND continues to serve the zone via secondary
-// nameservers, an attacker querying those secondaries can read the
-// origin IP through the Cloudflare proxy. The proper fix (v0.6.0) is
-// to disable Plesk's local DNS service for activated domains entirely.
-// For now we leave slave-dns-manager's enable state to the admin's
-// explicit choice — see README for the recovery command if needed.
-try {
-    pm_ApiCli::call('server_dns', ['--disable-custom-backend']);
-} catch (pm_Exception $e) {
-    // Already released or never claimed — fine.
-}
+// If a previous v0.4.x install of this extension is still holding the
+// slot at upgrade time, the admin can release it manually with one
+// command — see README's "Upgrading from v0.4.x" section. We don't do
+// it for them because we cannot distinguish "we still hold the slot"
+// from "slave-dns-manager has the slot."
