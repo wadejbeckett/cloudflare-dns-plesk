@@ -9,8 +9,8 @@ declare(strict_types=1);
  * re-uses pre-uninstall + post-install. Disabling the backend immediately
  * here would briefly unregister us on every upgrade and rely on the new
  * post-install to put it back. A failure in that window leaves the
- * extension installed but invisible to Plesk's DNS dispatch (the
- * 2026-05-25 → 2026-05-27 incident on neo, 49 hours of silent failure).
+ * extension installed but invisible to Plesk's DNS dispatch — we have
+ * observed multi-day silent outages caused by exactly that race.
  *
  * Instead: drop a self-deleting shell script in /tmp that polls for our
  * handler's return. After pre-uninstall completes Plesk either swaps in

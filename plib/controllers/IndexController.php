@@ -97,7 +97,7 @@ class IndexController extends pm_Controller_Action
         // reserved `_cfdns-trigger.` host — every `plesk bin dns --add`/`--del`
         // fires the backend for just *that* one zone (~5 s), whereas
         // `--sync-all-zones` would walk every zone on the server (60+ s on a
-        // multi-tenant box like neo). The marker is filtered out by
+        // busy multi-tenant box). The marker is filtered out by
         // Payload::parse, so it never reaches Cloudflare.
         pm_Settings::set('status_' . $domain, '');
         $domainArg = escapeshellarg($domain);
