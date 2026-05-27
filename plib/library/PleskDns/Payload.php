@@ -183,6 +183,27 @@ final class Payload
             $value = rtrim($value, '.');
         }
 
+        // Cloudflare's UI flags TXT content not wrapped in double quotes
+        // even though the record still resolves correctly. Plesk delivers
+        // TXT values unquoted; normalise to BIND-style "..." here so the
+        // dashboard never raises the warning. Long values (>255 bytes,
+        // e.g. DKIM) are split at 255-byte boundaries — each chunk wrapped
+        // individually, space-joined — which is the standard multi-string
+        // representation. We do not yet handle embedded literal `"` in
+        // values; nothing we sync today (SPF/DKIM/DMARC/ACME tokens/CAA)
+        // contains one.
+        if ($type === 'TXT') {
+            $unquoted = trim($value, '"');
+            if (strlen($unquoted) <= 255) {
+                $value = '"' . $unquoted . '"';
+            } else {
+                $value = implode(' ', array_map(
+                    static fn (string $chunk): string => '"' . $chunk . '"',
+                    str_split($unquoted, 255)
+                ));
+            }
+        }
+
         // For MX records Plesk delivers the priority in `opt`.
         $priority = ($type === 'MX' && $opt !== '') ? (int) $opt : null;
 

@@ -290,4 +290,46 @@ final class PleskPayloadTest extends TestCase
         $this->expectException(\RuntimeException::class);
         Payload::parse('this is not json');
     }
+
+    private function singleTxtPayload(string $value): string
+    {
+        return (string) json_encode([
+            [
+                'command' => 'update',
+                'zone' => [
+                    'name' => 'example.com.',
+                    'soa' => ['ttl' => 3600],
+                    'rr' => [
+                        ['host' => '_acme-challenge.example.com.', 'type' => 'TXT', 'value' => $value, 'opt' => ''],
+                    ],
+                ],
+            ],
+        ]);
+    }
+
+    public function testShortUnquotedTxtIsWrappedInDoubleQuotes(): void
+    {
+        $records = Payload::parse($this->singleTxtPayload('_dKDQnSC_laK8d5kzf6wCDd8OgnPeI892Hh81sbeQ8M'))
+            ['operations'][0]->records;
+
+        self::assertSame('"_dKDQnSC_laK8d5kzf6wCDd8OgnPeI892Hh81sbeQ8M"', $records[0]->content);
+    }
+
+    public function testAlreadyQuotedTxtIsNotDoubleWrapped(): void
+    {
+        $records = Payload::parse($this->singleTxtPayload('"v=spf1 -all"'))
+            ['operations'][0]->records;
+
+        self::assertSame('"v=spf1 -all"', $records[0]->content);
+    }
+
+    public function testLongTxtIsSplitInto255ByteChunks(): void
+    {
+        $first = str_repeat('a', 255);
+        $second = str_repeat('b', 100);
+        $records = Payload::parse($this->singleTxtPayload($first . $second))
+            ['operations'][0]->records;
+
+        self::assertSame('"' . $first . '" "' . $second . '"', $records[0]->content);
+    }
 }
