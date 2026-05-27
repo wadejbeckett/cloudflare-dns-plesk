@@ -225,33 +225,6 @@ class IndexController extends pm_Controller_Action
             'description' => 'Required so the extension can create Cloudflare zones for the domains you activate.',
         ]);
 
-        // Plesk has a single custom-DNS-backend slot; this extension holds it.
-        // If another extension (most commonly `slave-dns-manager`) also wants
-        // DNS events, paste its handler command here and we'll forward every
-        // event to it after our own processing.
-        $passThroughValue = (string) pm_Settings::get('pass_through_handler', '');
-        if ($passThroughValue === '' && is_file('/usr/local/psa/admin/plib/modules/slave-dns-manager/scripts/slave-dns.php')) {
-            // Auto-suggest the slave-dns-manager command when detected, but
-            // leave it as a placeholder — admin opts in by saving.
-            $suggestedPassThrough = '/usr/local/psa/bin/extension --exec slave-dns-manager slave-dns.php';
-        } else {
-            $suggestedPassThrough = '';
-        }
-
-        $form->addElement('text', 'pass_through_handler', [
-            'label' => 'Pass-through handler (optional)',
-            'value' => $passThroughValue,
-            'attribs' => $suggestedPassThrough !== '' && $passThroughValue === ''
-                ? ['placeholder' => $suggestedPassThrough]
-                : [],
-            'description' => 'Optional command that should also receive every DNS event after this extension processes it. '
-                . 'Useful when another extension (e.g. Slave DNS Manager) also needs to react to DNS changes. '
-                . 'Leave blank to disable.'
-                . ($suggestedPassThrough !== '' && $passThroughValue === ''
-                    ? ' Detected Slave DNS Manager — suggested command shown as placeholder.'
-                    : ''),
-        ]);
-
         $form->addControlButtons([
             'sendTitle' => 'Save',
             'cancelLink' => pm_Context::getModulesListUrl(),
@@ -286,7 +259,6 @@ class IndexController extends pm_Controller_Action
 
         pm_Settings::set('api_token', $token);
         pm_Settings::set('account_id', trim((string) $form->getValue('account_id')));
-        pm_Settings::set('pass_through_handler', trim((string) $form->getValue('pass_through_handler')));
     }
 
     private function showConnectionStatus()
@@ -358,25 +330,22 @@ class IndexController extends pm_Controller_Action
     }
 
     /**
-     * Fire a single-zone backend invocation in the background for $domain
-     * and clear its recorded status so the front-end's poll sees "pending"
-     * until the sync completes.
+     * Trigger an immediate sync for $domain in the background and clear
+     * its recorded status so the front-end's poll sees "pending" until
+     * the sync completes.
      *
-     * Trick: every `plesk bin dns --add`/`--del` fires the custom DNS
-     * backend for just that one zone (~5 s), whereas `--sync-all-zones`
-     * walks every zone on the server (60+ s on a busy multi-tenant box).
-     * The marker TXT is filtered out by Payload::parse so it never reaches
-     * Cloudflare.
+     * Invokes sync-poll.php directly with the domain as argv[1] so only
+     * that zone is reconciled. Doesn't use `plesk bin dns --add/--del`
+     * any more — that mechanism routes via the custom-DNS-backend slot
+     * which v0.5.0 deliberately leaves unclaimed (see post-install.php).
      */
     private function triggerSync($domain)
     {
         pm_Settings::set('status_' . $domain, '');
-        $domainArg = escapeshellarg($domain);
         $cmd = sprintf(
-            '(plesk bin dns --add %1$s -txt cfdns-trigger -domain _cfdns-trigger '
-                . '&& plesk bin dns --del %1$s -txt cfdns-trigger -domain _cfdns-trigger) '
+            '/opt/psa/bin/extension --exec cloudflare-dns-sync sync-poll.php %s '
                 . '< /dev/null > /dev/null 2>&1 &',
-            $domainArg
+            escapeshellarg($domain)
         );
         $execOutput = [];
         $execReturn = -1;

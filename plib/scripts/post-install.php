@@ -3,35 +3,56 @@
 declare(strict_types=1);
 
 /**
- * Registers this extension as Plesk's custom DNS backend, so Plesk routes
- * every DNS zone change through plib/scripts/sync-backend.php.
+ * Registers a recurring poll task via Plesk's task scheduler.
  *
- * Plesk has a single exclusive custom-DNS-backend slot. Installing this
- * extension claims it. The most common collision is with `slave-dns-manager`,
- * which also wants the slot — they cannot both register, so taking it from
- * slave-dns-manager will mark it disabled in Plesk's Modules table.
+ * v0.5.0 deliberately does NOT register as Plesk's custom DNS backend
+ * (`server_dns --enable-custom-backend`). That slot is a single
+ * exclusive resource; taking it evicts other DNS-backend extensions
+ * — most importantly Plesk's `slave-dns-manager`, which uses the slot
+ * to drive BIND slave replication. Earlier versions (v0.4.x) registered
+ * for the slot and broke slave replication for every domain on the
+ * server.
  *
- * Earlier versions tried to re-enable slave-dns-manager here as a courtesy.
- * That created a registration cycle (slave-dns-manager re-enables → re-takes
- * the slot → evicts us → next event isn't routed to us). The right shape
- * is to leave slave-dns-manager's enable state alone, and let the admin
- * configure the optional pass-through handler (see Settings) to forward
- * each event to slave-dns-manager's handler too — so both keep functioning
- * regardless of which one Plesk marks "enabled".
- *
- * Long-term fix is the v0.5.0 polling backend that frees the slot
- * entirely — see _internal/AUDIT… and the v0.5.0 design doc.
+ * This extension now polls Plesk's DNS state on a schedule via
+ * `pm_Scheduler`. Default cadence: every 5 minutes. The slot stays
+ * free for any other DNS-backend extension to use.
  */
 
-$extensionBinary = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN'
-    ? '"' . PRODUCT_ROOT . '\\bin\\extension.exe"'
-    : '"' . PRODUCT_ROOT . '/bin/extension"';
+$scheduler = pm_Scheduler::getInstance();
 
-$handler = $extensionBinary . ' --exec ' . pm_Context::getModuleId() . ' sync-backend.php';
+// Remove any prior scheduled tasks from this module before adding the new
+// one — so an upgrade or reinstall doesn't accumulate duplicates.
+foreach ($scheduler->listTasks() as $existing) {
+    try {
+        $scheduler->removeTask($existing);
+    } catch (\Throwable $e) {
+        // Best-effort cleanup — continue.
+    }
+}
+
+// pm_Scheduler_Task::setCmd() resolves to the module's scripts/ directory,
+// so pass just the script name — Plesk wraps it as
+// `php -dauto_prepend_file=sdk.php scripts/sync-poll.php` which gives us
+// the Plesk SDK already bootstrapped at runtime.
+$task = new pm_Scheduler_Task();
+$task->setCmd('sync-poll.php');
+$task->setSchedule(pm_Scheduler::$EVERY_5_MIN);
 
 try {
-    pm_ApiCli::call('server_dns', ['--enable-custom-backend', $handler]);
-} catch (pm_Exception $e) {
-    echo 'Failed to register the Cloudflare DNS backend: ' . $e->getMessage() . "\n";
+    $scheduler->putTask($task);
+} catch (\Throwable $e) {
+    echo "Failed to register the Cloudflare DNS Sync scheduled task: " . $e->getMessage() . "\n";
+    echo "The extension is installed but will not poll automatically. ";
+    echo "Use the resync buttons in the UI to trigger syncs manually.\n";
     exit(1);
+}
+
+// Defensive: release the Plesk custom-DNS-backend slot if a previous
+// v0.4.x version had claimed it. Without this, an upgrade from v0.4.x
+// would leave us holding the slot AND scheduled to poll — duplicating
+// the work and (worse) keeping slave-dns-manager broken.
+try {
+    pm_ApiCli::call('server_dns', ['--disable-custom-backend']);
+} catch (pm_Exception $e) {
+    // Already released or never claimed — fine.
 }

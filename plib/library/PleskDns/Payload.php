@@ -103,9 +103,13 @@ final class Payload
     }
 
     /**
+     * Build a Record from the same shape Plesk's custom-DNS-backend JSON
+     * delivers ($rr is the inner-array form). Reusable by the v0.5.0 poll
+     * path which reads via the SDK and feeds the same fields here.
+     *
      * @param array<string,mixed> $rr
      */
-    private static function toRecord(array $rr, string $type, int $defaultTtl): Record
+    public static function toRecord(array $rr, string $type, int $defaultTtl): Record
     {
         $host = DnsName::normalise((string) ($rr['host'] ?? ''));
         $value = trim((string) ($rr['value'] ?? ''));
