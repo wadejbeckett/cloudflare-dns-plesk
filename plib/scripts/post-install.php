@@ -34,9 +34,14 @@ foreach ($scheduler->listTasks() as $existing) {
 // so pass just the script name — Plesk wraps it as
 // `php -dauto_prepend_file=sdk.php scripts/sync-poll.php` which gives us
 // the Plesk SDK already bootstrapped at runtime.
+//
+// EVERY_MIN is the smallest preset Plesk's scheduler exposes. The poll is
+// cheap (one CF zone-read per activated domain per cycle), so per-minute
+// gives near-real-time sync without hitting Cloudflare's API rate limits
+// for any realistic activated-domain count.
 $task = new pm_Scheduler_Task();
 $task->setCmd('sync-poll.php');
-$task->setSchedule(pm_Scheduler::$EVERY_5_MIN);
+$task->setSchedule(pm_Scheduler::$EVERY_MIN);
 
 try {
     $scheduler->putTask($task);
@@ -51,6 +56,16 @@ try {
 // v0.4.x version had claimed it. Without this, an upgrade from v0.4.x
 // would leave us holding the slot AND scheduled to poll — duplicating
 // the work and (worse) keeping slave-dns-manager broken.
+//
+// We deliberately do NOT auto-re-enable slave-dns-manager here. While
+// v0.4.x's slot eviction left it disabled, force-re-enabling slave-dns-
+// manager on activated-for-sync domains reintroduces an origin-leak
+// risk: if the local BIND continues to serve the zone via secondary
+// nameservers, an attacker querying those secondaries can read the
+// origin IP through the Cloudflare proxy. The proper fix (v0.6.0) is
+// to disable Plesk's local DNS service for activated domains entirely.
+// For now we leave slave-dns-manager's enable state to the admin's
+// explicit choice — see README for the recovery command if needed.
 try {
     pm_ApiCli::call('server_dns', ['--disable-custom-backend']);
 } catch (pm_Exception $e) {
