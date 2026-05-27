@@ -170,4 +170,51 @@ foreach ($parsed['operations'] as $operation) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Optional pass-through to another custom DNS backend handler.
+//
+// Plesk has a single exclusive "custom DNS backend" slot (see
+// `server_dns --enable-custom-backend`). Only one extension can register
+// at a time — the most common collision is Plesk's `slave-dns-manager`,
+// which uses the slot to drive BIND slave replication. To let both
+// extensions function alongside each other, this extension exposes an
+// admin-configurable pass-through: after our processing, the SAME stdin
+// payload is forwarded to whatever handler the admin has nominated.
+//
+// The setting is generic — it accepts any command-line string. For
+// slave-dns-manager the admin pastes:
+//   /usr/local/psa/bin/extension --exec slave-dns-manager slave-dns.php
+// (post-install auto-suggests this when the extension is detected).
+// Empty → no forwarding.
+//
+// Note: this is the v0.4.x interim. The proper architectural fix is the
+// v0.5.0 polling backend, which frees the slot entirely — see
+// _internal/AUDIT… and the v0.5.0 design doc.
+// ---------------------------------------------------------------------------
+$passThrough = trim((string) pm_Settings::get('pass_through_handler', ''));
+if ($passThrough !== '') {
+    $descriptors = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $process = @proc_open($passThrough, $descriptors, $pipes);
+    if (is_resource($process)) {
+        fwrite($pipes[0], $input);
+        fclose($pipes[0]);
+        $forwardedOut = stream_get_contents($pipes[1]) ?: '';
+        $forwardedErr = stream_get_contents($pipes[2]) ?: '';
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $forwardedCode = proc_close($process);
+        if ($forwardedCode !== 0) {
+            cfdns_log("pass-through handler exited $forwardedCode: " . trim($forwardedErr));
+        } elseif (trim($forwardedOut . $forwardedErr) !== '') {
+            cfdns_log("pass-through handler output: " . trim($forwardedOut . $forwardedErr));
+        }
+    } else {
+        cfdns_log("could not start pass-through handler: $passThrough");
+    }
+}
+
 exit($hadError ? 255 : 0);
