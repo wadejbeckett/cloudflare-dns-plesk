@@ -58,9 +58,14 @@ directly.
    plesk bin extension --install /path/to/cloudflare-dns-sync.zip
    ```
 
-> **One DNS backend at a time.** The extension registers itself as Plesk's
-> custom DNS backend, and Plesk has a single slot for that. Do not run it
-> alongside the official "DNS Integration for Cloudflare" extension.
+> **Coexists with `slave-dns-manager` and other DNS extensions.** Since
+> v0.5.0 this extension does NOT claim Plesk's exclusive custom-DNS-backend
+> slot — it polls Plesk's DNS state on a schedule instead. Plesk's
+> `slave-dns-manager` (or any other DNS-backend extension) is free to use
+> the slot. The earlier "one DNS backend at a time" warning no longer
+> applies. The exception is the official **"DNS Integration for Cloudflare"**
+> extension — it covers the same job from the other direction and
+> shouldn't be run alongside this one.
 
 ## Setup
 
@@ -90,8 +95,8 @@ is saved the field locks; tick **Change the API token** to replace it.
 
 ## Usage
 
-The **Domains to sync** section lists every domain on the server, each with an
-on/off switch:
+The **Domains to sync** section lists every main domain on the server, each
+with an on/off switch:
 
 - **Switch a domain on** — it is activated and pushed to Cloudflare
   immediately; the row shows the result (`Synced — N records`). If the zone
@@ -99,9 +104,14 @@ on/off switch:
 - **Switch a domain off** — syncing stops. The Cloudflare zone is left intact.
 - **Auto-enable new domains** — when on, a domain added in Plesk starts syncing
   automatically. Off by default, so nothing syncs until you choose it to.
+- **Resync this domain** (per-row refresh icon) — forces an immediate
+  reconciliation for one activated domain.
+- **Resync all activated domains** (button below the table) — same, for
+  every activated row in parallel.
 
-After a domain is activated, every DNS change you make in Plesk is pushed to
-Cloudflare automatically.
+After a domain is activated, every DNS change you make in Plesk is picked up
+on the next poll cycle (default every 1 minute) and pushed to Cloudflare.
+If you need a change to land instantly, click the per-row Resync icon.
 
 ## Good to know
 
@@ -119,23 +129,36 @@ Cloudflare automatically.
 
 ## How it works
 
-Plesk routes every DNS zone change through a registered *custom DNS backend*.
-This extension's backend translates the change, diffs the desired zone against
-the live Cloudflare zone, and applies the minimum set of `PATCH` / `POST` /
-`DELETE` calls. Ownership is tracked by stamping a marker (`[plesk-dns-sync]`)
-into each managed record's Cloudflare comment — so the extension only ever
-touches records it created, and the marker survives a reinstall.
+The extension runs a scheduled task — registered via Plesk's `pm_Scheduler`
+— that fires every minute. For each activated domain, the task reads
+Plesk's current DNS state via the SDK (`pm_Dns_Zone::getRecords()`), diffs
+it against the live Cloudflare zone, and applies the minimum set of
+`PATCH` / `POST` / `DELETE` calls.
+
+Ownership is tracked by stamping a marker (`[plesk-dns-sync]`) into each
+managed record's Cloudflare comment — so the extension only ever touches
+records it created, and the marker survives a reinstall.
+
+Earlier versions (v0.4.x) used Plesk's *custom DNS backend* slot for an
+event-driven sync. That mechanism is single-slot and exclusive — claiming
+it evicts other DNS-backend extensions (e.g. `slave-dns-manager`) and
+breaks their replication. v0.5.0 switched to polling so the slot stays
+free for other extensions. Trade-off: sync latency is one poll cycle
+(currently 1 minute) instead of sub-second. The per-row and bulk Resync
+buttons trigger an immediate sync when you need it now.
 
 ## Repository layout
 
 ```
 meta.xml                       Plesk extension manifest
+_meta/icons/                   Extension icons (32/64/128 PNG)
 htdocs/                        Web entry point
 plib/controllers/              Settings-page controller
 plib/views/                    Settings-page view
-plib/scripts/                  DNS backend handler + install/uninstall hooks
+plib/hooks/                    Plesk integration hooks (top-bar search)
+plib/scripts/                  Lifecycle hooks + the sync-poll script
 plib/library/Cloudflare/       Panel-agnostic Cloudflare client + diff engine
-plib/library/PleskDns/         Plesk payload translator
+plib/library/PleskDns/         Plesk SDK reader + record-field mapper
 tests/                         PHPUnit unit tests (no network required)
 ```
 
