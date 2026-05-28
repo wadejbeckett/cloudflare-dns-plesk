@@ -97,6 +97,15 @@ class IndexController extends pm_Controller_Action
             return;
         }
 
+        // Mark the domain as seen so the auto-enable cron doesn't re-enrol
+        // it after a future UI deactivation. Idempotent.
+        $seenRaw = (string) pm_Settings::get('seen_domains', '');
+        $seen = $seenRaw !== '' ? (json_decode($seenRaw, true) ?: []) : [];
+        if (!in_array($domain, $seen, true)) {
+            $seen[] = $domain;
+            pm_Settings::set('seen_domains', json_encode(array_values(array_unique($seen))));
+        }
+
         // Activating syncs the domain. Fire the background trigger and let
         // the front-end poll for status (see triggerSync).
         $this->triggerSync($domain);

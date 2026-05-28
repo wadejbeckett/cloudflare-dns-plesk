@@ -1,4 +1,9 @@
-# Changelog
+# Changes
+
+Mirror of [CHANGELOG.md](CHANGELOG.md) under Plesk's expected catalog
+filename. Edit CHANGELOG.md; copy the updated content here at release time.
+
+---
 
 All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/). The authoritative per-tag detail lives in the

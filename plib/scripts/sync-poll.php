@@ -25,6 +25,7 @@ use Noiz\CloudflareDns\Cloudflare\DnsRecords;
 use Noiz\CloudflareDns\Cloudflare\Ownership;
 use Noiz\CloudflareDns\Cloudflare\ZoneSync;
 use Noiz\CloudflareDns\Cloudflare\Zones;
+use Noiz\CloudflareDns\PleskDns\AutoEnable;
 use Noiz\CloudflareDns\PleskDns\ZoneReader;
 
 pm_Loader::registerAutoload();
@@ -54,6 +55,21 @@ function cfdns_poll_enabled_domains(): array
 function cfdns_poll_save_enabled_domains(array $domains): void
 {
     pm_Settings::set('enabled_domains', json_encode(array_values($domains)));
+}
+
+function cfdns_poll_seen_domains(): array
+{
+    $raw = (string) pm_Settings::get('seen_domains', '');
+    if ($raw === '') {
+        return [];
+    }
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? array_values(array_unique($decoded)) : [];
+}
+
+function cfdns_poll_save_seen_domains(array $names): void
+{
+    pm_Settings::set('seen_domains', json_encode(array_values(array_unique($names))));
 }
 
 function cfdns_poll_set_status(string $zone, array $status): void
@@ -132,23 +148,42 @@ if ($onlyDomain !== '') {
         exit(0);
     }
 } else {
-    // Scheduled poll (not a single-domain UI trigger). Honour the
-    // "Auto-enable new domains" setting: pick up any main domain that
-    // wasn't on the activation list yet.
+    // Scheduled poll. Honour "Auto-enable new domains": enrol each Plesk
+    // main domain EXACTLY ONCE — the first time the cron sees it. After
+    // that the domain's enable/disable state is operator-controlled. A
+    // domain deactivated via the UI stays in `seen_domains` and the cron
+    // never re-enrols it (fixes N1 from the 2026-05-28 audit).
     $autoEnable = ((string) pm_Settings::get('auto_enable_new_domains', '')) !== '';
     if ($autoEnable) {
-        $known = array_fill_keys($enabled, true);
-        $added = false;
+        $seen = cfdns_poll_seen_domains();
+        $bootstrapped = ((string) pm_Settings::get('seen_domains_bootstrapped', '')) === '1';
+        $allMain = [];
         foreach (\pm_Domain::getAllDomains(true) as $d) {
-            $name = $d->getName();
-            if (!isset($known[$name])) {
-                $enabled[] = $name;
-                $added = true;
-                cfdns_poll_log("$name auto-enabled for sync.");
-            }
+            $allMain[] = $d->getName();
         }
-        if ($added) {
-            cfdns_poll_save_enabled_domains($enabled);
+
+        if (!$bootstrapped) {
+            // First auto-enable run after upgrade. Mark every existing
+            // domain as already-seen so we don't auto-enrol the whole
+            // server. The next poll cycle picks up the "new" path.
+            cfdns_poll_save_seen_domains($allMain);
+            pm_Settings::set('seen_domains_bootstrapped', '1');
+            cfdns_poll_log('seen-domains bootstrap: ' . count($allMain) . ' domains marked as seen, no auto-enrollment this cycle.');
+        } else {
+            $newDomains = AutoEnable::computeNewDomains($allMain, $seen);
+            if ($newDomains !== []) {
+                $enabledSet = array_fill_keys($enabled, true);
+                foreach ($newDomains as $name) {
+                    $seen[] = $name;
+                    if (!isset($enabledSet[$name])) {
+                        $enabled[] = $name;
+                        $enabledSet[$name] = true;
+                        cfdns_poll_log("$name auto-enabled for sync.");
+                    }
+                }
+                cfdns_poll_save_seen_domains($seen);
+                cfdns_poll_save_enabled_domains($enabled);
+            }
         }
     }
 }
