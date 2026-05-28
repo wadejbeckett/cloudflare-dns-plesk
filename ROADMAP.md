@@ -50,6 +50,10 @@ replication for every domain on the server.
 - v0.5.4 — fixed broken search hook (named class for Plesk Lucene)
 - v0.5.5 — dropped a useless Navigation hook
 - v0.5.6 — cleanup: removed dead custom-backend code (~600 lines)
+- v0.5.7 — cleanup pass: seven fixes from the codebase audit
+  (auto-enable regression, per-domain flock, retry on transport errors,
+  TXT > 2048 byte handling, zone-id cache, skipped-record reporting,
+  triggerSync cleanup)
 
 ## Now
 

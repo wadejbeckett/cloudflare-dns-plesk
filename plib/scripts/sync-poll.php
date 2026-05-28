@@ -34,6 +34,9 @@ require_once __DIR__ . '/../library/autoload.php';
 
 function cfdns_poll_log(string $message): void
 {
+    // Defang CR/LF/NUL so a hostile or faulty upstream string (e.g. a
+    // Cloudflare error message with embedded newlines) cannot forge log lines.
+    $message = strtr($message, ["\r" => ' ', "\n" => ' ', "\0" => '']);
     fwrite(STDOUT, 'cloudflare-dns-sync-poll: ' . $message . "\n");
     @file_put_contents(
         rtrim(pm_Context::getVarDir(), '/') . '/sync.log',
@@ -75,7 +78,11 @@ function cfdns_poll_lock(string $domain)
     $path = rtrim(pm_Context::getVarDir(), '/') . '/sync-' . $safe . '.lock';
     $fp = @fopen($path, 'c');
     if ($fp === false) {
-        return null;
+        // Real I/O failure (var dir missing, permission denied, fs full).
+        // Surface it as an exception so the outer try/catch logs a useful
+        // diagnostic — returning null here would masquerade as the benign
+        // "another sync in progress" case and hide the actual problem.
+        throw new \RuntimeException("Unable to open lockfile for domain '$domain'");
     }
     if (!@flock($fp, LOCK_EX | LOCK_NB)) {
         fclose($fp);
@@ -159,7 +166,14 @@ foreach ($enabled as $zoneName) {
     // Per-domain lock: skip cleanly when another instance is processing
     // this zone (e.g. a Resync-UI trigger overlapping with a scheduled
     // poll, or two scheduled polls when the previous one ran long).
-    $lockFp = cfdns_poll_lock($zoneName);
+    try {
+        $lockFp = cfdns_poll_lock($zoneName);
+    } catch (\RuntimeException $e) {
+        cfdns_poll_log("$zoneName — lock acquisition failed: " . $e->getMessage());
+        cfdns_poll_set_status($zoneName, ['ok' => false, 'error' => 'lock acquisition failed: ' . $e->getMessage()]);
+        $hadError = true;
+        continue;
+    }
     if ($lockFp === null) {
         cfdns_poll_log("$zoneName — another sync in progress, skipping this cycle.");
         continue;
@@ -168,7 +182,8 @@ foreach ($enabled as $zoneName) {
     try {
         $read = ZoneReader::read($zoneName);
         $desired = $read['records'];
-        foreach ($read['skipped'] as $skip) {
+        $skipped = $read['skipped'];
+        foreach ($skipped as $skip) {
             cfdns_poll_log("$zoneName — skipped $skip");
         }
 
@@ -213,10 +228,24 @@ foreach ($enabled as $zoneName) {
             cfdns_poll_log("$zoneName — {$error['action']} {$error['record']}: {$error['error']}");
         }
         if ($report->hasErrors()) {
-            cfdns_poll_set_status($zoneName, ['ok' => false, 'error' => count($report->errors) . ' record(s) failed to sync']);
+            cfdns_poll_set_status($zoneName, [
+                'ok' => false,
+                'error' => count($report->errors) . ' record(s) failed to sync',
+                'skipped_count' => count($skipped),
+                // Cap the verbatim list at 5 entries — pm_Settings rows are
+                // small key/value blobs and we only need a hint for the UI.
+                'skipped' => array_slice($skipped, 0, 5),
+            ]);
             $hadError = true;
         } else {
-            cfdns_poll_set_status($zoneName, ['ok' => true, 'records' => count($desired)]);
+            cfdns_poll_set_status($zoneName, [
+                'ok' => true,
+                'records' => count($desired),
+                'skipped_count' => count($skipped),
+                // Cap the verbatim list at 5 entries — pm_Settings rows are
+                // small key/value blobs and we only need a hint for the UI.
+                'skipped' => array_slice($skipped, 0, 5),
+            ]);
         }
     } catch (ApiException $e) {
         cfdns_poll_log("$zoneName — Cloudflare API error: " . $e->getMessage());

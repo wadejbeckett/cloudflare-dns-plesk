@@ -83,8 +83,11 @@ class IndexController extends pm_Controller_Action
 
         if (!$enable) {
             // Deactivating only stops future syncs — the Cloudflare zone is
-            // left intact, so just clear the stored status.
+            // left intact, so just clear the stored status. Also drop the
+            // cached Cloudflare zone ID so a future re-activation re-resolves
+            // it (the zone may have been moved/deleted in CF in the meantime).
             pm_Settings::set('status_' . $domain, '');
+            pm_Settings::set('cf_zone_id_' . $domain, '');
             $this->_helper->json([
                 'success' => true,
                 'enabled' => false,
@@ -167,6 +170,10 @@ class IndexController extends pm_Controller_Action
     public function domainStatusAction()
     {
         $domain = trim((string) $this->getRequest()->getParam('domain'));
+        if (!in_array($domain, $this->listDomainNames(), true)) {
+            $this->_helper->json(['success' => false, 'message' => 'Unknown domain.']);
+            return;
+        }
         $enabled = in_array($domain, $this->getEnabledDomains(), true);
         $status = $this->getDomainStatus($domain);
 
@@ -378,6 +385,11 @@ class IndexController extends pm_Controller_Action
             return ['text' => 'Sync failed: ' . ($status['error'] ?? 'unknown error'), 'class' => 'error'];
         }
         $n = (int) ($status['records'] ?? 0);
-        return ['text' => 'Synced — ' . $n . ' record' . ($n === 1 ? '' : 's'), 'class' => 'ok'];
+        $k = (int) ($status['skipped_count'] ?? 0);
+        $text = 'Synced — ' . $n . ' record' . ($n === 1 ? '' : 's');
+        if ($k > 0) {
+            $text .= ', ' . $k . ' skipped';
+        }
+        return ['text' => $text, 'class' => 'ok'];
     }
 }

@@ -24,7 +24,7 @@ never overwrites them:
 
 The practical result: switch the orange cloud on for a record in Cloudflare,
 and it stays on through every subsequent Plesk-side DNS change. This is the bug
-([EXTPLESK-13681](https://github.com/wadejbeckett/cloudflare-dns-plesk)) in the
+([EXTPLESK-13681](https://docs.plesk.com/release-notes/obsidian/change-log/)) in the
 official Cloudflare extension that this project exists to avoid.
 
 ## Requirements
@@ -44,6 +44,21 @@ core unchanged — but it is separate work and not part of this package.
 
 The extension is not in the Plesk Extensions Catalog — install the package
 directly.
+
+### Recommended: install the pre-built zip
+
+Every tagged release publishes a ready-to-install zip on the
+[GitHub Releases page](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases/latest).
+On the Plesk server:
+
+```sh
+wget https://github.com/wadejbeckett/cloudflare-dns-plesk/releases/latest/download/cloudflare-dns-sync.zip
+plesk bin extension --install cloudflare-dns-sync.zip
+```
+
+Or in Plesk: **Extensions → My Extensions → Upload Extension**, choose the zip.
+
+### Build from source
 
 1. **Build the package** from a checkout of this repository:
 

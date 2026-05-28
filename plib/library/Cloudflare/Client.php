@@ -28,6 +28,9 @@ final class Client
         if ($token === '') {
             throw new ApiException('A Cloudflare API token is required.');
         }
+        if (preg_match('/[\r\n\0]/', $token)) {
+            throw new ApiException('Cloudflare API token contains invalid characters.');
+        }
 
         $this->token = $token;
         $this->transport = $transport ?? new CurlTransport();

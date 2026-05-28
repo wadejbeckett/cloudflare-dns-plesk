@@ -33,6 +33,9 @@ final class CurlTransport implements Transport
 
         $headerLines = [];
         foreach ($headers as $name => $value) {
+            if (strpbrk((string) $value, "\r\n") !== false) {
+                throw new ApiException("Header value for {$name} contains CR/LF.");
+            }
             $headerLines[] = $name . ': ' . $value;
         }
 
@@ -44,6 +47,8 @@ final class CurlTransport implements Transport
             CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_CONNECTTIMEOUT => $this->connectTimeout,
             CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
         ]);
 
         if ($body !== null) {

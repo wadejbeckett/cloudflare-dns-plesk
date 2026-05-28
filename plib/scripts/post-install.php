@@ -14,8 +14,8 @@ declare(strict_types=1);
  * server.
  *
  * This extension now polls Plesk's DNS state on a schedule via
- * `pm_Scheduler`. Default cadence: every 5 minutes. The slot stays
- * free for any other DNS-backend extension to use.
+ * `pm_Scheduler`. Default cadence: every minute (pm_Scheduler::$EVERY_MIN).
+ * The slot stays free for any other DNS-backend extension to use.
  */
 
 $scheduler = pm_Scheduler::getInstance();
@@ -26,7 +26,10 @@ foreach ($scheduler->listTasks() as $existing) {
     try {
         $scheduler->removeTask($existing);
     } catch (\Throwable $e) {
-        // Best-effort cleanup — continue.
+        // Best-effort cleanup — continue. Log to STDERR so an operator
+        // can see why a stale task wasn't removed (e.g. permissions).
+        $taskId = method_exists($existing, 'getId') ? (string) $existing->getId() : 'unknown';
+        fwrite(STDERR, "Failed to remove stale task '{$taskId}': {$e->getMessage()}\n");
     }
 }
 
@@ -62,6 +65,5 @@ try {
 //
 // If a previous v0.4.x install of this extension is still holding the
 // slot at upgrade time, the admin can release it manually with one
-// command — see README's "Upgrading from v0.4.x" section. We don't do
-// it for them because we cannot distinguish "we still hold the slot"
-// from "slave-dns-manager has the slot."
+// command. We don't do it for them because we cannot distinguish "we
+// still hold the slot" from "slave-dns-manager has the slot."

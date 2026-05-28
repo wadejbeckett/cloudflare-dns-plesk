@@ -2,7 +2,6 @@
 composer.phar
 /.phpunit.cache/
 .phpunit.result.cache
-composer.lock
 .cloudflare-test-token
 *.log
 .DS_Store

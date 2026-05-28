@@ -1,0 +1,69 @@
+# Changelog
+
+All notable changes to this project are documented here. Versions follow
+[SemVer](https://semver.org/). The authoritative per-tag detail lives in the
+[GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases).
+
+## [0.5.8] — 2026-05-28
+### Security
+- Explicit `CURLOPT_SSL_VERIFYPEER` / `CURLOPT_SSL_VERIFYHOST` on every Cloudflare request — pins TLS verification at the call site so a future php.ini change cannot silently leak the API token.
+- Reject CR/LF/NUL in the API token at construction time and in every outgoing HTTP header — defence-in-depth against header injection.
+- Defang CR/LF/NUL in `sync.log` writes — Cloudflare error bodies can no longer forge log lines.
+### Fixed
+- `domainStatusAction` now validates its `domain` argument like the other AJAX endpoints (was the only one accepting arbitrary input).
+- Lockfile `fopen` failures (disk full, permission denied) no longer masquerade as the benign "another sync in progress" case — they surface as an explicit error status and a `lock acquisition failed` log line.
+- `removeTask` failures during install now log to STDERR so an operator can see why a stale scheduler task survived an upgrade.
+- README's EXTPLESK-13681 link pointed back at the repo itself — now targets the canonical Plesk change-log URL.
+- Stale "every 5 minutes" docblock in `post-install.php` corrected to `EVERY_MIN`.
+- Dead breadcrumb to a non-existent README "Upgrading from v0.4.x" section removed.
+### Added
+- README "Recommended: install the pre-built zip" section — was previously sending admins down the build-from-source path despite 21 published Release zips.
+- Skipped records (DS, HTTPS, oversized TXT) now surface as `Synced — N records, K skipped` in the per-domain UI status, not only in `sync.log`.
+- `cf_zone_id_<domain>` cache is cleared when a domain is deactivated in the UI — re-activation re-resolves the CF zone rather than reusing a possibly-stale ID.
+- `SECURITY.md` (vulnerability disclosure policy).
+- `CHANGELOG.md` (this file).
+- ROADMAP shipped/v0.5 list now ends at v0.5.7 (was stuck at v0.5.6).
+### Changed
+- PHP floor bumped `>=8.0` → `>=8.1` (PHP 8.0 is EOL; Plesk bundles 8.1+).
+- PHPUnit dev constraint bumped `^9.6` → `^9.6.33` to clear GHSA-vvj3-c3rp-c85p.
+- CI matrix drops PHP 8.0, gains a `composer audit` step in the `test` job.
+- `composer.lock` is no longer git-ignored.
+
+## [0.5.7] — 2026-05-28
+### Fixed
+- Seven cleanups from the v0.5.7 codebase audit (see _internal/AUDIT-2026-05-28-codebase-review.md).
+
+## [0.5.6] — 2026-05-28
+### Removed
+- Dead custom-DNS-backend code (~600 lines).
+
+## [0.5.5] — 2026-05-27
+### Removed
+- The Plesk Navigation hook (unused).
+
+## [0.5.4] — 2026-05-27
+### Fixed
+- Search hook now uses a named class (Plesk Lucene cannot load anonymous classes).
+
+## [0.5.3] — 2026-05-27
+### Added
+- Plesk top-bar search integration; per-row Resync button lockout during sync.
+
+## [0.5.2] — 2026-05-27
+### Fixed
+- Stopped calling `server_dns --disable-custom-backend` in lifecycle hooks
+  — that call evicts whichever extension currently holds the slot,
+  including slave-dns-manager.
+
+## [0.5.1] — 2026-05-27
+### Changed
+- Scheduled poll cadence reduced from 5 min to 1 min.
+
+## [0.5.0] — 2026-05-27
+### Changed
+- Replaced the event-driven custom-DNS-backend with a `pm_Scheduler` poll.
+  The extension no longer claims Plesk's exclusive custom-DNS-backend slot,
+  so it now coexists with `slave-dns-manager` and other DNS-backend
+  extensions.
+
+(See git history for v0.1.0 → v0.4.13.)
