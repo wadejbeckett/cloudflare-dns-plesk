@@ -352,7 +352,7 @@ final class ZoneSyncTest extends TestCase
         self::assertCount(0, $plan->creates);
         self::assertCount(1, $plan->conflicts);
         self::assertSame(
-            ['type' => 'CNAME', 'name' => 'ftp.x.com', 'foreign_type' => 'A'],
+            ['type' => 'CNAME', 'name' => 'ftp.x.com', 'foreign_type' => 'A', 'reason' => 'type'],
             $plan->conflicts[0]
         );
     }
@@ -369,7 +369,7 @@ final class ZoneSyncTest extends TestCase
         self::assertCount(0, $plan->creates);
         self::assertCount(1, $plan->conflicts);
         self::assertSame(
-            ['type' => 'A', 'name' => 'svc.x.com', 'foreign_type' => 'CNAME'],
+            ['type' => 'A', 'name' => 'svc.x.com', 'foreign_type' => 'CNAME', 'reason' => 'type'],
             $plan->conflicts[0]
         );
     }
@@ -389,7 +389,7 @@ final class ZoneSyncTest extends TestCase
         self::assertCount(0, $plan->adopted);
         self::assertCount(1, $plan->conflicts);
         self::assertSame(
-            ['type' => 'CNAME', 'name' => 'x.com', 'foreign_type' => 'CNAME'],
+            ['type' => 'CNAME', 'name' => 'x.com', 'foreign_type' => 'CNAME', 'reason' => 'type'],
             $plan->conflicts[0]
         );
     }
@@ -426,5 +426,76 @@ final class ZoneSyncTest extends TestCase
         self::assertCount(1, $plan->creates);
         self::assertSame('CNAME', $plan->creates[0]->type);
         self::assertCount(0, $plan->conflicts);
+    }
+
+    public function testSpfPatternBlockedByForeignSpf(): void
+    {
+        // brandexpert.co.za pattern: Plesk wants the canonical SPF, CF
+        // already has a foreign SPF at the same name+type but with
+        // different content (the +a +mx variant). sameValue is false →
+        // adoption fails. findTypeConflict is null (both are TXT). Without
+        // the v0.5.12 check we'd silently CREATE a second SPF alongside
+        // the foreign one — multi-SPF = receiver permerror. Must surface
+        // as a content conflict instead.
+        $plan = ZoneSync::plan(
+            [$this->panel('TXT', 'brandexpert.co.za', '"v=spf1 a mx ~all"')],
+            [$this->cf('foreignSpf', 'TXT', 'brandexpert.co.za', '"v=spf1 +a +mx ~all"')],
+            ['managedIds' => []]
+        );
+
+        self::assertCount(0, $plan->creates);
+        self::assertCount(0, $plan->adopted);
+        self::assertCount(1, $plan->conflicts);
+        self::assertSame(
+            ['type' => 'TXT', 'name' => 'brandexpert.co.za', 'foreign_type' => 'TXT', 'reason' => 'content'],
+            $plan->conflicts[0]
+        );
+    }
+
+    public function testDkimTtlOnlyDifferenceStillAdopts(): void
+    {
+        // Sanity test: sameValue is content-only — TTL alone does NOT
+        // mark records as different. A foreign DKIM with the same content
+        // but a different TTL must adopt cleanly (no conflict, no create).
+        $content = '"v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQ"';
+        $plan = ZoneSync::plan(
+            [$this->panel('TXT', 'default._domainkey.brandexpert.co.za', $content, 10800)],
+            [$this->cf('foreignDkim', 'TXT', 'default._domainkey.brandexpert.co.za', $content, 3600)],
+            ['managedIds' => []]
+        );
+
+        self::assertCount(0, $plan->creates);
+        self::assertCount(1, $plan->adopted);
+        self::assertCount(0, $plan->conflicts);
+        self::assertSame('foreignDkim', $plan->adopted[0]->id);
+    }
+
+    public function testSrvMultiTargetBlockedByForeignSrv(): void
+    {
+        // SRV pattern: same name+type, different target. Plesk wants the
+        // FQDN mail.brandexpert.co.za., CF has a foreign SRV pointing at
+        // the apex. Different targets → sameValue false → adoption fails.
+        // Same type → findTypeConflict null. Without v0.5.12 we'd create
+        // a duplicate SRV record alongside the foreign one.
+        $desired = new Record(
+            'SRV', '_imaps._tcp.brandexpert.co.za', '0 1 993 mail.brandexpert.co.za.', 3600,
+            null, null, null, null,
+            ['priority' => 0, 'weight' => 1, 'port' => 993, 'target' => 'mail.brandexpert.co.za.']
+        );
+        $foreign = new Record(
+            'SRV', '_imaps._tcp.brandexpert.co.za', '0 1 993 brandexpert.co.za.', 3600,
+            null, 'foreignSrv', null, null,
+            ['priority' => 0, 'weight' => 1, 'port' => 993, 'target' => 'brandexpert.co.za.']
+        );
+
+        $plan = ZoneSync::plan([$desired], [$foreign], ['managedIds' => []]);
+
+        self::assertCount(0, $plan->creates);
+        self::assertCount(0, $plan->adopted);
+        self::assertCount(1, $plan->conflicts);
+        self::assertSame(
+            ['type' => 'SRV', 'name' => '_imaps._tcp.brandexpert.co.za', 'foreign_type' => 'SRV', 'reason' => 'content'],
+            $plan->conflicts[0]
+        );
     }
 }

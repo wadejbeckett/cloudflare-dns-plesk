@@ -4,6 +4,33 @@ All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/). The authoritative per-tag detail lives in the
 [GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases).
 
+## [0.5.12] — 2026-05-28
+### Fixed
+- Same-name same-type records in Cloudflare with different content
+  than the Plesk-side record (e.g. brandexpert's foreign SPF/DKIM/SRV
+  alongside a Plesk-side fresher version) no longer get silently
+  duplicated. `ZoneSync::plan` detects the content conflict at plan
+  time (after the v0.5.11 type-conflict check), suppresses the CREATE,
+  and surfaces as `Synced — N records, M conflict(s)` with a distinct
+  `content conflict at <name> (<type>): foreign record with different
+  content exists, refusing to duplicate` log line. The marker model's
+  protection of operator-authored CF state is preserved; the operator
+  resolves manually (delete one side in CF dashboard, or stamp the
+  marker into the foreign record's comment to bring it under
+  management). A future v0.5.13 will add a resolve-from-UI flow.
+### Added
+- 3 new ZoneSync tests covering the SPF/DKIM/SRV patterns from the
+  brandexpert.co.za observation, plus a TTL-only sanity test
+  confirming `sameValue` is content-only (TTL alone doesn't block
+  adoption). Suite: 67 tests, 180 assertions, all green on Plesk
+  PHP 8.3.31.
+### Changed
+- SyncPlan conflict entries now carry a `'reason' => 'type'|'content'`
+  field distinguishing the v0.5.11 RFC 1034 collision from the new
+  v0.5.12 content conflict. v0.5.11 conflict tests updated to assert
+  this field. No schema break — operators / log readers see the same
+  UI count; the reason surfaces in distinct sync.log lines.
+
 ## [0.5.11] — 2026-05-28
 ### Fixed
 - A type-conflict where Cloudflare already has a foreign record at the

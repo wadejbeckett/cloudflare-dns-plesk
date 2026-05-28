@@ -37,11 +37,15 @@ final class SyncPlan
 
     /**
      * Desired records suppressed because a foreign record at the same name
-     * carries an RFC 1034 §3.6.2-incompatible type (e.g. desired CNAME blocked
-     * by a foreign A). Informational only — no API call is attempted. Each
-     * entry is `['type' => string, 'name' => string, 'foreign_type' => string]`.
+     * would conflict. Each entry is:
+     *   ['type' => string, 'name' => string, 'foreign_type' => string,
+     *    'reason' => 'type'|'content']
+     * 'type' reason = RFC 1034 §3.6.2 (CNAME vs A/AAAA/CNAME). 'content'
+     * reason = same name+type, different content (non-RFC, marker-model
+     * policy decision to never duplicate alongside a foreign record).
+     * Informational only — no API call is attempted.
      *
-     * @var array<int, array{type: string, name: string, foreign_type: string}>
+     * @var array<int, array{type: string, name: string, foreign_type: string, reason: 'type'|'content'}>
      */
     public array $conflicts;
 
@@ -52,7 +56,7 @@ final class SyncPlan
      * @param Record[]       $unchanged
      * @param Record[]       $ignored
      * @param Record[]       $adopted
-     * @param array<int, array{type: string, name: string, foreign_type: string}> $conflicts
+     * @param array<int, array{type: string, name: string, foreign_type: string, reason: 'type'|'content'}> $conflicts
      */
     public function __construct(
         array $creates = [],

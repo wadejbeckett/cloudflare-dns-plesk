@@ -161,9 +161,23 @@ final class ZoneSync
                             'type' => $want[$i]->type,
                             'name' => $want[$i]->name,
                             'foreign_type' => $blocker->type,
+                            'reason' => 'type',
                         ];
                     } else {
-                        $creates[] = $want[$i];
+                        // v0.5.12 — same name+type, different content (adoption
+                        // already failed via sameValue mismatch). Skip rather
+                        // than silently duplicate next to the foreign record.
+                        $sameKeyForeigns = $foreignByKey[$key] ?? [];
+                        if ($sameKeyForeigns !== []) {
+                            $conflicts[] = [
+                                'type' => $want[$i]->type,
+                                'name' => $want[$i]->name,
+                                'foreign_type' => $sameKeyForeigns[0]->type,
+                                'reason' => 'content',
+                            ];
+                        } else {
+                            $creates[] = $want[$i];
+                        }
                     }
                 }
             }

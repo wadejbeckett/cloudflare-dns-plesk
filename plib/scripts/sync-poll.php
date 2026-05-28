@@ -249,7 +249,11 @@ foreach ($enabled as $zoneName) {
 
         $plan = ZoneSync::plan($desired, $existing, ['managedIds' => $managedIds]);
         foreach ($plan->conflicts as $c) {
-            cfdns_poll_log("$zoneName — conflict at {$c['name']}: foreign {$c['foreign_type']} record exists, cannot create {$c['type']}");
+            if (($c['reason'] ?? 'type') === 'content') {
+                cfdns_poll_log("$zoneName — content conflict at {$c['name']} ({$c['type']}): foreign record with different content exists, refusing to duplicate");
+            } else {
+                cfdns_poll_log("$zoneName — type conflict at {$c['name']}: foreign {$c['foreign_type']} record exists, cannot create {$c['type']}");
+            }
         }
         $report = $dns->apply($plan);
 
@@ -271,7 +275,7 @@ foreach ($enabled as $zoneName) {
                 'skipped' => array_slice($skipped, 0, 5),
                 'conflicts_count' => count($plan->conflicts),
                 'conflicts' => array_map(
-                    fn (array $c): string => "{$c['type']}@{$c['name']} (foreign {$c['foreign_type']})",
+                    fn (array $c): string => "{$c['type']}@{$c['name']} ({$c['reason']} vs {$c['foreign_type']})",
                     array_slice($plan->conflicts, 0, 5)
                 ),
             ]);
@@ -286,7 +290,7 @@ foreach ($enabled as $zoneName) {
                 'skipped' => array_slice($skipped, 0, 5),
                 'conflicts_count' => count($plan->conflicts),
                 'conflicts' => array_map(
-                    fn (array $c): string => "{$c['type']}@{$c['name']} (foreign {$c['foreign_type']})",
+                    fn (array $c): string => "{$c['type']}@{$c['name']} ({$c['reason']} vs {$c['foreign_type']})",
                     array_slice($plan->conflicts, 0, 5)
                 ),
             ]);
