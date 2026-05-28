@@ -77,7 +77,20 @@ final class Client
         $attempt = 0;
         while (true) {
             $attempt++;
-            $response = $this->transport->send($method, $url, $headers, $encodedBody);
+
+            // Transport-layer failures (DNS lookup, TLS handshake, connection
+            // reset, timeout) come up as ApiException with httpStatus 0. They
+            // are the exact case retry is meant for — bubble them only after
+            // the retry budget is exhausted.
+            try {
+                $response = $this->transport->send($method, $url, $headers, $encodedBody);
+            } catch (ApiException $e) {
+                if ($attempt <= $this->maxRetries) {
+                    sleep((int) min(30, 2 ** $attempt));
+                    continue;
+                }
+                throw $e;
+            }
 
             if (in_array($response->status, self::RETRYABLE, true) && $attempt <= $this->maxRetries) {
                 // Exponential backoff, capped at 30s.

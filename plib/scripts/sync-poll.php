@@ -48,25 +48,72 @@ function cfdns_poll_enabled_domains(): array
     return is_array($list) ? $list : [];
 }
 
+function cfdns_poll_save_enabled_domains(array $domains): void
+{
+    pm_Settings::set('enabled_domains', json_encode(array_values($domains)));
+}
+
 function cfdns_poll_set_status(string $zone, array $status): void
 {
     $status['ts'] = time();
     pm_Settings::set('status_' . $zone, json_encode($status));
 }
 
+/**
+ * Acquire a non-blocking exclusive flock on a per-domain lock file.
+ *
+ * Returns the file pointer on success (caller MUST keep it alive and
+ * close it to release), or null when another instance is currently
+ * processing this domain. The lock file lives under the extension's
+ * /var/ dir; flock state is per-process so a stale file is harmless.
+ *
+ * @return resource|null
+ */
+function cfdns_poll_lock(string $domain)
+{
+    $safe = preg_replace('/[^a-z0-9.-]/i', '_', $domain) ?? $domain;
+    $path = rtrim(pm_Context::getVarDir(), '/') . '/sync-' . $safe . '.lock';
+    $fp = @fopen($path, 'c');
+    if ($fp === false) {
+        return null;
+    }
+    if (!@flock($fp, LOCK_EX | LOCK_NB)) {
+        fclose($fp);
+        return null;
+    }
+    return $fp;
+}
+
+/** Look up a Cloudflare zone ID, using a pm_Settings cache to avoid
+ *  one CF API call per domain per poll cycle. Falls back to the live
+ *  CF API on cache miss; auto-creates the zone if $accountId is set. */
+function cfdns_poll_zone_id(Zones $zones, string $zoneName, string $accountId): ?string
+{
+    $cacheKey = 'cf_zone_id_' . $zoneName;
+    $cached = trim((string) pm_Settings::get($cacheKey, ''));
+    if ($cached !== '') {
+        return $cached;
+    }
+
+    $zoneId = ($accountId !== '')
+        ? $zones->ensure($zoneName, $accountId)
+        : $zones->findId($zoneName);
+
+    if ($zoneId !== null && $zoneId !== '') {
+        pm_Settings::set($cacheKey, $zoneId);
+    }
+    return $zoneId;
+}
+
 $token = trim((string) pm_Settings::get('api_token'));
 if ($token === '') {
-    cfdns_poll_log('no Cloudflare API token configured — nothing to do.');
+    // Silent exit — the empty-token state is already visible from the UI's
+    // connection-status banner. Logging every minute would just be noise.
     exit(0);
 }
 $accountId = trim((string) pm_Settings::get('account_id'));
 
 $enabled = cfdns_poll_enabled_domains();
-if (empty($enabled)) {
-    // Quiet exit when nothing is activated. We don't even log per-cycle to
-    // avoid sync.log noise — operators see the toggle list in the UI.
-    exit(0);
-}
 
 // Optional CLI argument restricts the poll to a single domain. Used by the
 // "Resync this domain" UI action so only that row is reconciled.
@@ -77,6 +124,31 @@ if ($onlyDomain !== '') {
         cfdns_poll_log("$onlyDomain is not activated — refusing to poll.");
         exit(0);
     }
+} else {
+    // Scheduled poll (not a single-domain UI trigger). Honour the
+    // "Auto-enable new domains" setting: pick up any main domain that
+    // wasn't on the activation list yet.
+    $autoEnable = ((string) pm_Settings::get('auto_enable_new_domains', '')) !== '';
+    if ($autoEnable) {
+        $known = array_fill_keys($enabled, true);
+        $added = false;
+        foreach (\pm_Domain::getAllDomains(true) as $d) {
+            $name = $d->getName();
+            if (!isset($known[$name])) {
+                $enabled[] = $name;
+                $added = true;
+                cfdns_poll_log("$name auto-enabled for sync.");
+            }
+        }
+        if ($added) {
+            cfdns_poll_save_enabled_domains($enabled);
+        }
+    }
+}
+
+if (empty($enabled)) {
+    // Quiet exit when nothing is activated.
+    exit(0);
 }
 
 $client = new Client($token);
@@ -84,12 +156,23 @@ $zones = new Zones($client);
 $hadError = false;
 
 foreach ($enabled as $zoneName) {
-    try {
-        $desired = ZoneReader::read($zoneName);
+    // Per-domain lock: skip cleanly when another instance is processing
+    // this zone (e.g. a Resync-UI trigger overlapping with a scheduled
+    // poll, or two scheduled polls when the previous one ran long).
+    $lockFp = cfdns_poll_lock($zoneName);
+    if ($lockFp === null) {
+        cfdns_poll_log("$zoneName — another sync in progress, skipping this cycle.");
+        continue;
+    }
 
-        $zoneId = ($accountId !== '')
-            ? $zones->ensure($zoneName, $accountId)
-            : $zones->findId($zoneName);
+    try {
+        $read = ZoneReader::read($zoneName);
+        $desired = $read['records'];
+        foreach ($read['skipped'] as $skip) {
+            cfdns_poll_log("$zoneName — skipped $skip");
+        }
+
+        $zoneId = cfdns_poll_zone_id($zones, $zoneName, $accountId);
 
         if ($zoneId === null) {
             cfdns_poll_log("$zoneName is not in Cloudflare and no account ID is set — skipping.");
@@ -99,7 +182,17 @@ foreach ($enabled as $zoneName) {
         }
 
         $dns = new DnsRecords($client, $zoneId);
-        $existing = $dns->listAll();
+        try {
+            $existing = $dns->listAll();
+        } catch (ApiException $e) {
+            // 404 on a cached zone ID means the zone was deleted in
+            // Cloudflare since we last looked. Drop the cache and let the
+            // next cycle re-resolve.
+            if ($e->httpStatus() === 404) {
+                pm_Settings::set('cf_zone_id_' . $zoneName, '');
+            }
+            throw $e;
+        }
 
         $managedIds = [];
         foreach ($existing as $record) {
@@ -112,7 +205,7 @@ foreach ($enabled as $zoneName) {
         $report = $dns->apply($plan);
 
         // Only log when something actually changed — keeps sync.log signal-rich
-        // on a polling cadence that might run every minute.
+        // on a polling cadence that may run every minute.
         if ($plan->creates !== [] || $plan->updates !== [] || $plan->deletes !== [] || $plan->adopted !== []) {
             cfdns_poll_log("$zoneName — " . $report->summary());
         }
@@ -133,6 +226,9 @@ foreach ($enabled as $zoneName) {
         cfdns_poll_log("$zoneName — unexpected error: " . $e->getMessage());
         cfdns_poll_set_status($zoneName, ['ok' => false, 'error' => $e->getMessage()]);
         $hadError = true;
+    } finally {
+        @flock($lockFp, LOCK_UN);
+        @fclose($lockFp);
     }
 }
 

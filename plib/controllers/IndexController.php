@@ -334,6 +334,14 @@ class IndexController extends pm_Controller_Action
      * its recorded status so the front-end's poll sees "pending" until
      * the sync completes. Invokes sync-poll.php with the domain as
      * argv[1] so only that one zone is reconciled.
+     *
+     * The trailing `&` detaches the script so this method returns
+     * immediately. As a side-effect `exec()` cannot observe the
+     * sub-process's eventual exit code — the detached shell returns 0 to
+     * us synchronously regardless. If the script crashes before writing
+     * a status, the row stays "pending" until the front-end's 2-minute
+     * poll-status timeout surfaces it as "Still syncing — refresh the
+     * page".
      */
     private function triggerSync($domain)
     {
@@ -343,16 +351,7 @@ class IndexController extends pm_Controller_Action
                 . '< /dev/null > /dev/null 2>&1 &',
             escapeshellarg($domain)
         );
-        $execOutput = [];
-        $execReturn = -1;
-        @exec($cmd, $execOutput, $execReturn);
-        if ($execReturn !== 0) {
-            pm_Settings::set('status_' . $domain, json_encode([
-                'ok' => false,
-                'error' => 'Failed to start background sync (exit ' . $execReturn . ')',
-                'ts' => time(),
-            ]));
-        }
+        @exec($cmd);
     }
 
     /** The last recorded sync outcome for a domain, or null if never synced. */
