@@ -4,6 +4,31 @@ All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/). The authoritative per-tag detail lives in the
 [GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases).
 
+## [0.5.13] — 2026-05-28
+### Fixed
+- TXT records that Cloudflare stores as a single continuous string
+  (the typical case when added manually via the dashboard, or returned
+  by CF's API on any DKIM/SPF/DMARC record under 2 KB) no longer
+  false-negative against the same content rendered by Plesk's
+  BIND-style 255-byte chunking. `Record::normalisedContent` for TXT
+  now collapses the literal 3-byte chunk separator (`" "`) in addition
+  to stripping outer quotes. Resolves the v0.5.12 content conflict on
+  `google._domainkey.escentia.co.za` observed live on `neo.noiz.co.za`
+  2026-05-28, and the same brandexpert.co.za DKIM duplicate pattern
+  from earlier testing. Foreign DKIM/SPF/DMARC records with identical
+  content but different chunking form now adopt cleanly on first sync
+  rather than surfacing as a content conflict.
+### Added
+- New `tests/RecordTest.php` with 5 cases covering chunked-vs-unchunked
+  TXT equivalence (the live regression in test form), single-string
+  quoted vs unquoted, three-way consistency on 400-byte DKIM keys,
+  protection against over-collapsing distinct content, and a non-TXT
+  sanity guard. Plus 1 new ZoneSync integration test
+  (`testTxtChunkedDesiredAdoptsUnchunkedForeign`) confirming chunked
+  Plesk desired adopts unchunked CF foreign. Suite: 73 tests, 200
+  assertions, all green on Plesk PHP 8.3.31 (1 skipped chmod-0 case
+  under root, unchanged from v0.5.10).
+
 ## [0.5.12] — 2026-05-28
 ### Fixed
 - Same-name same-type records in Cloudflare with different content

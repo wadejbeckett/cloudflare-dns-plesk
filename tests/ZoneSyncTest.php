@@ -470,6 +470,46 @@ final class ZoneSyncTest extends TestCase
         self::assertSame('foreignDkim', $plan->adopted[0]->id);
     }
 
+    public function testTxtChunkedDesiredAdoptsUnchunkedForeign(): void
+    {
+        // The escentia.co.za regression in test form. Plesk's Payload chunks
+        // a DKIM record at 255-byte boundaries and quotes each chunk:
+        //   `"<first 255>" "<remainder>"`
+        // Cloudflare returns the same record as a single unquoted string:
+        //   `<first 255><remainder>`
+        // Pre-v0.5.13 these were byte-different → sameValue false → adoption
+        // failed → v0.5.12 content-conflict path fired → operator saw
+        // `Synced — N records, 1 conflict` on `google._domainkey.escentia.co.za`
+        // for what is semantically the SAME record. With the chunk-separator
+        // collapse in `normalisedContent`, the foreign record adopts cleanly:
+        // no create, no conflict.
+        //
+        // A canonicalisation update IS queued (Pass 3 line 145: literal
+        // `$twin->content !== $want->content` is true), matching the legacy
+        // unquoted-TXT adoption pattern — adoption alone stamps the marker
+        // but doesn't rewrite content, so a follow-up PATCH lands Plesk's
+        // chunked canonical form in CF. The point of this v0.5.13 fix is
+        // that adoption SUCCEEDS rather than the v0.5.12 content-conflict
+        // false-positive; the canonicalisation update is consistent with
+        // the v0.4.10/v0.5.0 behaviour for adopted records whose literal
+        // shape differs from Plesk's canonical form.
+        $name = 'dkim._domainkey.x.com';
+        $plan = ZoneSync::plan(
+            [$this->panel('TXT', $name, '"v=DKIM1; k=rsa; p=AAAA" "BBBB"', 3600)],
+            [$this->cf('cf-id-1', 'TXT', $name, 'v=DKIM1; k=rsa; p=AAAABBBB', 3600)],
+            ['managedIds' => []]
+        );
+
+        self::assertCount(1, $plan->adopted);
+        self::assertSame('cf-id-1', $plan->adopted[0]->id);
+        self::assertCount(0, $plan->creates);
+        self::assertCount(0, $plan->conflicts);
+        // Adoption + canonical update — the literal content differs, same
+        // shape as testAdoptedLegacyUnquotedTxtAlsoQueuesCanonicalUpdate.
+        self::assertCount(1, $plan->updates);
+        self::assertSame('"v=DKIM1; k=rsa; p=AAAA" "BBBB"', $plan->updates[0]->desired->content);
+    }
+
     public function testSrvMultiTargetBlockedByForeignSrv(): void
     {
         // SRV pattern: same name+type, different target. Plesk wants the

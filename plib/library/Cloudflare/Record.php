@@ -150,7 +150,18 @@ final class Record
     {
         // TXT values are sometimes stored wrapped in double quotes.
         if ($this->type === 'TXT') {
-            return trim($this->content, '"');
+            // Strip outer quotes, then collapse the chunk separator (`" "`)
+            // that BIND-style TXT records use to split content at 255-byte
+            // boundaries. Cloudflare stores TXT content as a single continuous
+            // string regardless of how it was submitted (chunked or not), so
+            // two semantically-identical records must compare equal even when
+            // one side uses chunk syntax and the other doesn't. A TXT whose
+            // semantic content legitimately contains the exact 3-byte sequence
+            // `quote-space-quote` between two non-whitespace tokens would be
+            // over-collapsed; that is exceedingly rare (no SPF/DKIM/DMARC/
+            // MTA-STS/SRV/CAA records contain it in practice).
+            $stripped = trim($this->content, '"');
+            return str_replace('" "', '', $stripped);
         }
 
         // Hostname targets are case-insensitive and may carry a trailing dot.
