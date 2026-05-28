@@ -26,6 +26,7 @@ use Noiz\CloudflareDns\Cloudflare\Ownership;
 use Noiz\CloudflareDns\Cloudflare\ZoneSync;
 use Noiz\CloudflareDns\Cloudflare\Zones;
 use Noiz\CloudflareDns\PleskDns\AutoEnable;
+use Noiz\CloudflareDns\PleskDns\LockFile;
 use Noiz\CloudflareDns\PleskDns\ZoneReader;
 
 pm_Loader::registerAutoload();
@@ -92,14 +93,9 @@ function cfdns_poll_lock(string $domain)
 {
     $safe = preg_replace('/[^a-z0-9.-]/i', '_', $domain) ?? $domain;
     $path = rtrim(pm_Context::getVarDir(), '/') . '/sync-' . $safe . '.lock';
-    $fp = @fopen($path, 'c');
-    if ($fp === false) {
-        // Real I/O failure (var dir missing, permission denied, fs full).
-        // Surface it as an exception so the outer try/catch logs a useful
-        // diagnostic — returning null here would masquerade as the benign
-        // "another sync in progress" case and hide the actual problem.
-        throw new \RuntimeException("Unable to open lockfile for domain '$domain'");
-    }
+
+    $fp = LockFile::open($path);
+
     if (!@flock($fp, LOCK_EX | LOCK_NB)) {
         fclose($fp);
         return null;

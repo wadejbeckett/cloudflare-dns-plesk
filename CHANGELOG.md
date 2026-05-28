@@ -4,6 +4,24 @@ All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/). The authoritative per-tag detail lives in the
 [GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases).
 
+## [0.5.10] — 2026-05-28
+### Fixed
+- The per-domain lockfile (`sync-<domain>.lock`) can now be acquired
+  even when it was previously created under a different uid — e.g. an
+  admin who ran the sync manually as root, leaving a root-owned file
+  the psaadm-owned cron could not write. `LockFile::open` (new
+  `Noiz\CloudflareDns\PleskDns\LockFile`) tries write-mode fopen
+  first, falls back to read-mode when the file exists but isn't
+  writable, and uses `flock` on the resulting fd — works on any open
+  mode on Linux. Best-effort `chmod 0666` after open prevents
+  recurrence on freshly-created lockfiles.
+### Added
+- `tests/LockFileTest.php` — 5 cases covering fresh open, read-only
+  fallback, chmod-0 throw, missing-parent throw, repeat-open
+  idempotence. Suite: 59 tests, 150 assertions, all green
+  (1 skipped: chmod-0 case auto-skips when running as root, since
+  root bypasses POSIX permission checks).
+
 ## [0.5.9] — 2026-05-28
 ### Fixed
 - Auto-enable now enrols each Plesk domain exactly once instead of
