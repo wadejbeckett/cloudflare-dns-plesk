@@ -248,6 +248,9 @@ foreach ($enabled as $zoneName) {
         }
 
         $plan = ZoneSync::plan($desired, $existing, ['managedIds' => $managedIds]);
+        foreach ($plan->conflicts as $c) {
+            cfdns_poll_log("$zoneName — conflict at {$c['name']}: foreign {$c['foreign_type']} record exists, cannot create {$c['type']}");
+        }
         $report = $dns->apply($plan);
 
         // Only log when something actually changed — keeps sync.log signal-rich
@@ -266,6 +269,11 @@ foreach ($enabled as $zoneName) {
                 // Cap the verbatim list at 5 entries — pm_Settings rows are
                 // small key/value blobs and we only need a hint for the UI.
                 'skipped' => array_slice($skipped, 0, 5),
+                'conflicts_count' => count($plan->conflicts),
+                'conflicts' => array_map(
+                    fn (array $c): string => "{$c['type']}@{$c['name']} (foreign {$c['foreign_type']})",
+                    array_slice($plan->conflicts, 0, 5)
+                ),
             ]);
             $hadError = true;
         } else {
@@ -276,6 +284,11 @@ foreach ($enabled as $zoneName) {
                 // Cap the verbatim list at 5 entries — pm_Settings rows are
                 // small key/value blobs and we only need a hint for the UI.
                 'skipped' => array_slice($skipped, 0, 5),
+                'conflicts_count' => count($plan->conflicts),
+                'conflicts' => array_map(
+                    fn (array $c): string => "{$c['type']}@{$c['name']} (foreign {$c['foreign_type']})",
+                    array_slice($plan->conflicts, 0, 5)
+                ),
             ]);
         }
     } catch (ApiException $e) {

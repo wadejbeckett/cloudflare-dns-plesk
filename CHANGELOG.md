@@ -4,6 +4,32 @@ All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/). The authoritative per-tag detail lives in the
 [GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases).
 
+## [0.5.11] — 2026-05-28
+### Fixed
+- A type-conflict where Cloudflare already has a foreign record at the
+  same name as a desired record but with an incompatible type (e.g.
+  Plesk wants `ftp.example.com CNAME → example.com.`, CF already has
+  `ftp.example.com A 1.2.3.4` from a pre-extension manual entry, per
+  RFC 1034 §3.6.2 these can't coexist) no longer loops `[81053]` rejections
+  every poll. `ZoneSync::plan` detects the collision at plan time via a
+  new `findTypeConflict` helper, suppresses the doomed CREATE, surfaces it
+  in the per-domain status row as `Synced — N records, M conflict(s)`,
+  and logs a clear `conflict at <name>: foreign <type> exists, cannot
+  create <type>` line. Resolution path: the operator removes either the
+  Plesk record (if CF is authoritative for that name) or the foreign CF
+  record (if Plesk should be).
+### Added
+- `SyncPlan::$conflicts` — new public field carrying `{type, name,
+  foreign_type}` tuples for surfaced conflicts. Constructor signature
+  extended with a `$conflicts = []` parameter at the end (backwards
+  compatible with all existing call sites).
+- 5 new ZoneSync tests covering A/CNAME mutual exclusion, CNAME-vs-CNAME,
+  non-conflicting coexistence (TXT over A), and the subtle case where a
+  managed record at the same name being deleted in the same plan does
+  NOT trigger a self-conflict (because apply() runs deletes before
+  creates). Suite: 64 tests, 168 assertions, all green
+  (1 skipped chmod-0 case under root, unchanged from v0.5.10).
+
 ## [0.5.10] — 2026-05-28
 ### Fixed
 - The per-domain lockfile (`sync-<domain>.lock`) can now be acquired

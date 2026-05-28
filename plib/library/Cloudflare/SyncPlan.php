@@ -36,12 +36,23 @@ final class SyncPlan
     public array $adopted;
 
     /**
+     * Desired records suppressed because a foreign record at the same name
+     * carries an RFC 1034 §3.6.2-incompatible type (e.g. desired CNAME blocked
+     * by a foreign A). Informational only — no API call is attempted. Each
+     * entry is `['type' => string, 'name' => string, 'foreign_type' => string]`.
+     *
+     * @var array<int, array{type: string, name: string, foreign_type: string}>
+     */
+    public array $conflicts;
+
+    /**
      * @param Record[]       $creates
      * @param RecordUpdate[] $updates
      * @param Record[]       $deletes
      * @param Record[]       $unchanged
      * @param Record[]       $ignored
      * @param Record[]       $adopted
+     * @param array<int, array{type: string, name: string, foreign_type: string}> $conflicts
      */
     public function __construct(
         array $creates = [],
@@ -49,7 +60,8 @@ final class SyncPlan
         array $deletes = [],
         array $unchanged = [],
         array $ignored = [],
-        array $adopted = []
+        array $adopted = [],
+        array $conflicts = []
     ) {
         $this->creates = $creates;
         $this->updates = $updates;
@@ -57,6 +69,7 @@ final class SyncPlan
         $this->unchanged = $unchanged;
         $this->ignored = $ignored;
         $this->adopted = $adopted;
+        $this->conflicts = $conflicts;
     }
 
     /** True when applying the plan would make no Cloudflare API calls. */

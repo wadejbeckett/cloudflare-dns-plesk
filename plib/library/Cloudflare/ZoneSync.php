@@ -83,11 +83,20 @@ final class ZoneSync
         $managedByKey = self::groupByKey($managed);
         $foreignByKey = self::groupByKey($foreign);
 
+        // RFC 1034 §3.6.2 conflict check: foreign records indexed by name
+        // alone (not type+name) so we can detect "different type at same
+        // name" collisions that would make a CREATE doomed to 81053.
+        $foreignByName = [];
+        foreach ($foreign as $record) {
+            $foreignByName[$record->name][] = $record;
+        }
+
         $creates = [];
         $updates = [];
         $deletes = [];
         $unchanged = [];
         $adopted = [];
+        $conflicts = [];
 
         $keys = array_unique(array_merge(array_keys($desiredByKey), array_keys($managedByKey)));
 
@@ -137,7 +146,25 @@ final class ZoneSync
                         $updates[] = new RecordUpdate($twin, $want[$i]);
                     }
                 } else {
-                    $creates[] = $want[$i];
+                    // RFC 1034 §3.6.2: an A/AAAA cannot coexist with a CNAME
+                    // at the same name, and CNAME cannot coexist with
+                    // *anything* at the same name. If a foreign record at
+                    // this name carries an incompatible type, the CREATE
+                    // would loop on Cloudflare error 81053 every poll —
+                    // suppress it and surface as a conflict instead.
+                    $blocker = self::findTypeConflict(
+                        $foreignByName[$want[$i]->name] ?? [],
+                        $want[$i]->type
+                    );
+                    if ($blocker !== null) {
+                        $conflicts[] = [
+                            'type' => $want[$i]->type,
+                            'name' => $want[$i]->name,
+                            'foreign_type' => $blocker->type,
+                        ];
+                    } else {
+                        $creates[] = $want[$i];
+                    }
                 }
             }
 
@@ -158,7 +185,38 @@ final class ZoneSync
             }
         }
 
-        return new SyncPlan($creates, $updates, $deletes, $unchanged, $ignored, $adopted);
+        return new SyncPlan($creates, $updates, $deletes, $unchanged, $ignored, $adopted, $conflicts);
+    }
+
+    /**
+     * Return the first foreign record at the same name whose type collides
+     * with $desiredType per RFC 1034 §3.6.2, or null if none collide.
+     *
+     * Collision matrix:
+     *   - desired A / AAAA  collides with CNAME
+     *   - desired CNAME     collides with A, AAAA, CNAME (any record at all,
+     *                       in practice — CF rejects the second record)
+     *   - everything else   never collides (MX/TXT/SRV/CAA/TLSA/... coexist).
+     *
+     * @param Record[] $foreignAtName foreign records sharing the same name
+     */
+    private static function findTypeConflict(array $foreignAtName, string $desiredType): ?Record
+    {
+        $desiredType = strtoupper($desiredType);
+        foreach ($foreignAtName as $candidate) {
+            $foreignType = strtoupper($candidate->type);
+            if ($desiredType === 'CNAME') {
+                if ($foreignType === 'A' || $foreignType === 'AAAA' || $foreignType === 'CNAME') {
+                    return $candidate;
+                }
+            } elseif ($desiredType === 'A' || $desiredType === 'AAAA') {
+                if ($foreignType === 'CNAME') {
+                    return $candidate;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

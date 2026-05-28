@@ -337,4 +337,94 @@ final class ZoneSyncTest extends TestCase
         self::assertCount(0, $plan->creates);
         self::assertSame('newhash', $plan->updates[0]->patchPayload()['data']['certificate']);
     }
+
+    public function testCnameDesiredBlockedByForeignA(): void
+    {
+        // The buwholesale.co.za prod bug: Plesk wants ftp.x.com CNAME → x.com,
+        // CF has a pre-existing foreign A at the same name. RFC 1034 §3.6.2
+        // forbids both — without the conflict check we'd loop CF 81053 forever.
+        $plan = ZoneSync::plan(
+            [$this->panel('CNAME', 'ftp.x.com', 'x.com')],
+            [$this->cf('preA', 'A', 'ftp.x.com', '1.2.3.4')],
+            ['managedIds' => []]
+        );
+
+        self::assertCount(0, $plan->creates);
+        self::assertCount(1, $plan->conflicts);
+        self::assertSame(
+            ['type' => 'CNAME', 'name' => 'ftp.x.com', 'foreign_type' => 'A'],
+            $plan->conflicts[0]
+        );
+    }
+
+    public function testADesiredBlockedByForeignCname(): void
+    {
+        // Mirror case: Plesk wants an A record where CF has a foreign CNAME.
+        $plan = ZoneSync::plan(
+            [$this->panel('A', 'svc.x.com', '1.2.3.4')],
+            [$this->cf('preCN', 'CNAME', 'svc.x.com', 'other.example.com')],
+            ['managedIds' => []]
+        );
+
+        self::assertCount(0, $plan->creates);
+        self::assertCount(1, $plan->conflicts);
+        self::assertSame(
+            ['type' => 'A', 'name' => 'svc.x.com', 'foreign_type' => 'CNAME'],
+            $plan->conflicts[0]
+        );
+    }
+
+    public function testForeignCnameVsDesiredCname(): void
+    {
+        // Two CNAMEs at the same name violate RFC 1034. Different values
+        // means adoption can't take the foreign twin (sameValue mismatch),
+        // so the create path runs — and must be suppressed as a conflict.
+        $plan = ZoneSync::plan(
+            [$this->panel('CNAME', 'x.com', 'y.com')],
+            [$this->cf('preCN', 'CNAME', 'x.com', 'z.com')],
+            ['managedIds' => []]
+        );
+
+        self::assertCount(0, $plan->creates);
+        self::assertCount(0, $plan->adopted);
+        self::assertCount(1, $plan->conflicts);
+        self::assertSame(
+            ['type' => 'CNAME', 'name' => 'x.com', 'foreign_type' => 'CNAME'],
+            $plan->conflicts[0]
+        );
+    }
+
+    public function testNonConflictingTypesNotBlocked(): void
+    {
+        // TXT/MX/SRV/etc. can coexist with anything per RFC 1034 — a foreign
+        // A record must not block creation of a TXT at the same name.
+        $plan = ZoneSync::plan(
+            [$this->panel('TXT', 'x.com', '"v=spf1 -all"')],
+            [$this->cf('preA', 'A', 'x.com', '1.2.3.4')],
+            ['managedIds' => []]
+        );
+
+        self::assertCount(1, $plan->creates);
+        self::assertCount(0, $plan->conflicts);
+        self::assertSame('TXT', $plan->creates[0]->type);
+    }
+
+    public function testManagedDeletionDoesNotTriggerSelfConflict(): void
+    {
+        // Subtle: the conflict check looks at FOREIGN records only. A
+        // managed A at the same name is queued for deletion (Pass 4) and
+        // DnsRecords::apply runs deletes before creates, so the new CNAME
+        // will land cleanly. No self-conflict.
+        $plan = ZoneSync::plan(
+            [$this->panel('CNAME', 'x.com', 'y.com')],
+            [$this->cf('mineA', 'A', 'x.com', '1.2.3.4')],
+            ['managedIds' => ['mineA']]
+        );
+
+        self::assertCount(1, $plan->deletes);
+        self::assertSame('mineA', $plan->deletes[0]->id);
+        self::assertCount(1, $plan->creates);
+        self::assertSame('CNAME', $plan->creates[0]->type);
+        self::assertCount(0, $plan->conflicts);
+    }
 }

@@ -395,9 +395,13 @@ class IndexController extends pm_Controller_Action
         }
         $n = (int) ($status['records'] ?? 0);
         $k = (int) ($status['skipped_count'] ?? 0);
+        $c = (int) ($status['conflicts_count'] ?? 0);
         $text = 'Synced — ' . $n . ' record' . ($n === 1 ? '' : 's');
         if ($k > 0) {
             $text .= ', ' . $k . ' skipped';
+        }
+        if ($c > 0) {
+            $text .= ', ' . $c . ' conflict' . ($c === 1 ? '' : 's');
         }
         return ['text' => $text, 'class' => 'ok'];
     }

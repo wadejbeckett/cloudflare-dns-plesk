@@ -179,6 +179,11 @@ final class DnsRecords
             }
         }
 
+        // $plan->conflicts is intentionally NOT iterated here: it carries
+        // desired records suppressed at plan time because a foreign record
+        // at the same name has an RFC 1034 §3.6.2-incompatible type. They
+        // are informational only — surfaced in sync.log and the status row.
+
         return $report;
     }
 

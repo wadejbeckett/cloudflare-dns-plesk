@@ -4,7 +4,7 @@
     <name>Cloudflare DNS Sync</name>
     <description>One-way Cloudflare DNS synchronisation for Plesk. Non-destructive: it never resets the Cloudflare proxy (orange-cloud) state, comments, tags, or page-rule associations of your records.</description>
     <category>dns</category>
-    <version>0.5.10</version>
+    <version>0.5.11</version>
     <release>1</release>
     <vendor>Wade John Beckett</vendor>
     <vendorUrl>https://github.com/wadejbeckett/cloudflare-dns-plesk</vendorUrl>
