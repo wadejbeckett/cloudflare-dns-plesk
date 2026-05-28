@@ -332,12 +332,8 @@ class IndexController extends pm_Controller_Action
     /**
      * Trigger an immediate sync for $domain in the background and clear
      * its recorded status so the front-end's poll sees "pending" until
-     * the sync completes.
-     *
-     * Invokes sync-poll.php directly with the domain as argv[1] so only
-     * that zone is reconciled. Doesn't use `plesk bin dns --add/--del`
-     * any more — that mechanism routes via the custom-DNS-backend slot
-     * which v0.5.0 deliberately leaves unclaimed (see post-install.php).
+     * the sync completes. Invokes sync-poll.php with the domain as
+     * argv[1] so only that one zone is reconciled.
      */
     private function triggerSync($domain)
     {

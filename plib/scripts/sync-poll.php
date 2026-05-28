@@ -3,23 +3,20 @@
 declare(strict_types=1);
 
 /**
- * Poll-mode DNS reconciler — v0.5.0's replacement for the v0.4.x
- * custom-DNS-backend handler.
+ * Poll-mode DNS reconciler — the heart of this extension's sync path.
  *
- * Runs on a schedule (post-install drops a cron entry that invokes this
- * via `plesk bin extension --exec cloudflare-dns-sync sync-poll.php`).
- * Reads each activated domain's current DNS state from Plesk via the
- * SDK, runs the existing ZoneSync diff engine against Cloudflare, and
- * applies the plan.
+ * Runs on Plesk's task scheduler (post-install registers a pm_Scheduler
+ * task that invokes this script every minute). Reads each activated
+ * domain's current DNS state from Plesk via the SDK, runs the diff
+ * engine against Cloudflare, and applies the plan.
  *
- * Why this exists: Plesk has a single exclusive custom-DNS-backend slot.
- * The v0.4.x design registered for that slot, which evicted other DNS
- * backend extensions (most notably Plesk's `slave-dns-manager`) from
- * the slot and broke their replication. By polling instead of
- * registering, this extension never touches the slot.
+ * The on-demand Resync buttons in the admin UI also invoke this script
+ * directly (with the domain as argv[1]) for an immediate single-zone
+ * sync without waiting for the next scheduled cycle.
  *
- * Trade-off: sync latency increases from sub-second to one poll cycle
- * (typically 60–120 s). Acceptable for admin-driven DNS sync.
+ * This extension does NOT register as Plesk's custom DNS backend —
+ * that slot is exclusive and we leave it free for other DNS-backend
+ * extensions (e.g. slave-dns-manager) to use.
  */
 
 use Noiz\CloudflareDns\Cloudflare\ApiException;

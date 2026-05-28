@@ -7,16 +7,11 @@ namespace Noiz\CloudflareDns\PleskDns;
 use Noiz\CloudflareDns\Cloudflare\Record;
 
 /**
- * Reads a Plesk DNS zone via the Plesk PHP SDK and returns it in the same
- * Record[] shape the custom-DNS-backend Payload parser produces. Used by
- * the poll-mode sync (v0.5.0) so this extension can reconcile against
- * Cloudflare WITHOUT registering as Plesk's exclusive custom-DNS-backend
- * — leaving the slot free for slave-dns-manager (or any other DNS
- * backend extension) to coexist.
- *
- * The trade-off vs the custom-backend slot: latency goes from
- * "milliseconds after the Plesk edit" to "next poll cycle" (typically
- * 60–120 s). Acceptable for an admin-driven DNS sync.
+ * Reads a Plesk DNS zone via the Plesk PHP SDK and returns it as
+ * Record[] for the diff engine. This is the data source for v0.5.0+
+ * poll-mode sync — we read Plesk's current state on a schedule and
+ * reconcile to Cloudflare, rather than registering for Plesk's
+ * exclusive custom-DNS-backend slot.
  */
 final class ZoneReader
 {
@@ -44,14 +39,15 @@ final class ZoneReader
         $soaTtl = self::soaTtl($zone);
 
         $records = [];
-        $skipped = [];
         foreach ($zone->getRecords() as $pmRecord) {
             $type = strtoupper((string) $pmRecord->getType());
             $host = (string) $pmRecord->getHost();
 
-            // Same gating Payload::parse applies to the JSON shape: NS/SOA
-            // are Cloudflare-managed; the trigger TXT (left over from a v0.4.x
-            // custom-backend deployment) is silently dropped.
+            // NS/SOA are Cloudflare-managed; legacy trigger TXTs left over
+            // from a v0.4.x deployment (where the matched `--del` may have
+            // failed) are silently dropped so they don't pollute Cloudflare.
+            // Plesk-specific record types beyond our supported list are
+            // skipped — there's no useful way to sync them.
             if (str_starts_with($host, Payload::TRIGGER_HOST_PREFIX)) {
                 continue;
             }
@@ -59,21 +55,16 @@ final class ZoneReader
                 continue;
             }
             if (!in_array($type, Payload::SUPPORTED_TYPES, true)) {
-                $skipped[] = trim($type . ' ' . $host);
                 continue;
             }
 
-            $rr = [
-                // Plesk's JSON encodes hosts with a trailing dot; the SDK
-                // typically does not. Payload::toRecord runs DnsName::normalise
-                // which strips trailing dots either way, so we can pass through.
+            $records[] = Payload::toRecord([
                 'host' => $host,
                 'type' => $type,
                 'value' => (string) $pmRecord->getValue(),
                 'opt' => (string) ($pmRecord->getOption() ?? ''),
                 'ttl' => $pmRecord->getTtl(),
-            ];
-            $records[] = Payload::toRecord($rr, $type, $soaTtl);
+            ], $type, $soaTtl);
         }
 
         return $records;

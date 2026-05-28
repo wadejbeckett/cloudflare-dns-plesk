@@ -8,106 +8,36 @@ use Noiz\CloudflareDns\Cloudflare\DnsName;
 use Noiz\CloudflareDns\Cloudflare\Record;
 
 /**
- * Parses the JSON Plesk writes on stdin to a custom DNS backend.
+ * Maps Plesk DNS-record fields (host / type / value / opt / ttl) into
+ * the panel-agnostic {@see Record} value object.
  *
- * The payload is a JSON array of operation objects; each carries a `command`
- * and a `zone` (or a `ptr`, which Cloudflare cannot represent and is ignored).
- * An `update`/`create` `zone` always contains the WHOLE desired record set.
+ * Originally this class also parsed Plesk's custom-DNS-backend JSON
+ * payload (the JSON Plesk wrote to stdin when this extension held the
+ * single custom-backend slot). v0.5.0 dropped that approach in favour
+ * of poll-mode — {@see ZoneReader} now reads Plesk's DNS state via the
+ * SDK and feeds the per-record fields into {@see toRecord} here. The
+ * JSON-parsing code path is gone; only the type-specific value handling
+ * remains.
  */
 final class Payload
 {
-    /** Record types translated into Cloudflare records. */
+    /** Record types this extension translates into Cloudflare records. */
     public const SUPPORTED_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'CAA', 'TLSA'];
 
-    /** Types Cloudflare manages itself — silently dropped, no warning. */
-    private const PROVIDER_MANAGED_TYPES = ['SOA', 'NS'];
-
     /**
-     * Host-name prefix used by the extension's own activation trigger — a
-     * marker TXT briefly added then removed on toggle-ON to fire the backend
-     * for just one zone. Records under this prefix are silently dropped so
-     * they never reach Cloudflare.
+     * Host-name prefix used by v0.4.x for an on-demand single-zone backend
+     * trigger (a marker TXT briefly added then removed on toggle-ON).
+     * v0.5.x no longer uses this mechanism, but installs upgraded from
+     * v0.4.x may still have leftover `_cfdns-trigger.*` records in their
+     * Plesk zones if a previous `--del` ever failed; {@see ZoneReader}
+     * filters them out so they don't pollute Cloudflare.
      */
     public const TRIGGER_HOST_PREFIX = '_cfdns-trigger.';
 
     /**
-     * @return array{operations: ZoneOperation[], skipped: string[]}
+     * Build a {@see Record} from the fields one Plesk DNS record exposes.
      *
-     * @throws \RuntimeException when the payload is not a JSON array
-     */
-    public static function parse(string $json): array
-    {
-        $data = json_decode($json, true);
-        if (!is_array($data)) {
-            throw new \RuntimeException('The Plesk DNS payload is not a JSON array.');
-        }
-
-        $operations = [];
-        $skipped = [];
-
-        foreach ($data as $entry) {
-            if (!is_array($entry) || !isset($entry['command'])) {
-                continue;
-            }
-
-            $command = (string) $entry['command'];
-
-            // Cloudflare has no reverse DNS — ignore PTR operations entirely.
-            if ($command === 'createPTRs' || $command === 'deletePTRs') {
-                continue;
-            }
-
-            $zone = $entry['zone'] ?? null;
-            if (!is_array($zone)) {
-                continue;
-            }
-
-            $zoneName = DnsName::normalise((string) ($zone['name'] ?? ''));
-            if ($zoneName === '') {
-                continue;
-            }
-
-            $records = [];
-            $defaultTtl = (int) ($zone['soa']['ttl'] ?? 1);
-
-            foreach (($zone['rr'] ?? []) as $rr) {
-                if (!is_array($rr)) {
-                    continue;
-                }
-
-                $type = strtoupper(trim((string) ($rr['type'] ?? '')));
-                $host = DnsName::normalise((string) ($rr['host'] ?? ''));
-
-                if (str_starts_with($host, self::TRIGGER_HOST_PREFIX)) {
-                    continue; // our own activation trigger — never sync
-                }
-                if (in_array($type, self::PROVIDER_MANAGED_TYPES, true)) {
-                    continue; // Cloudflare owns SOA / NS
-                }
-                if (!in_array($type, self::SUPPORTED_TYPES, true)) {
-                    $skipped[] = trim($type . ' ' . $host);
-                    continue;
-                }
-
-                $records[] = self::toRecord($rr, $type, $defaultTtl);
-            }
-
-            $operations[] = new ZoneOperation(
-                $command === 'delete' ? ZoneOperation::DELETE : ZoneOperation::UPDATE,
-                $zoneName,
-                $records
-            );
-        }
-
-        return ['operations' => $operations, 'skipped' => $skipped];
-    }
-
-    /**
-     * Build a Record from the same shape Plesk's custom-DNS-backend JSON
-     * delivers ($rr is the inner-array form). Reusable by the v0.5.0 poll
-     * path which reads via the SDK and feeds the same fields here.
-     *
-     * @param array<string,mixed> $rr
+     * @param array<string,mixed> $rr Keys: host, type, value, opt, ttl.
      */
     public static function toRecord(array $rr, string $type, int $defaultTtl): Record
     {
