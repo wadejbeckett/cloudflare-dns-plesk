@@ -4,6 +4,31 @@ All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/). The authoritative per-tag detail lives in the
 [GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases).
 
+## [0.5.14] — 2026-05-29
+### Fixed
+- The Plesk server's own hostname (e.g. `neo.noiz.co.za` on neo) is
+  no longer offered as a syncable row in the settings page or
+  auto-enrolled by the cron. Activating sync on the server's own
+  domain risked panel reachability if Cloudflare is authoritative
+  for the parent zone. New helper `Noiz\CloudflareDns\PleskDns\
+  SyncableDomain::isSyncable` filters in both the settings page
+  and the auto-enable path.
+- Slave / secondary Plesk zones no longer appear as syncable either.
+  These mirror an external primary nameserver in Plesk and have no
+  Plesk-authored content of their own; syncing them to Cloudflare
+  as authoritative would push empty or stale records. Zone type is
+  detected via `pm_Dns_Zone::getType()` when available, falling
+  back to a `SELECT type FROM dns_zone` query, defaulting to
+  inclusion if neither path can answer (so a misconfigured Plesk
+  doesn't silently hide working domains).
+### Added
+- `plib/library/PleskDns/SyncableDomain.php` — pure helper for the
+  syncability predicate.
+- `tests/SyncableDomainTest.php` — host-sensitive unit coverage
+  of the gethostname comparison. Zone-type detection is Plesk-
+  runtime-dependent and covered by manual integration testing.
+  Suite: 75 tests, 202 assertions, all green on Plesk PHP 8.3.31.
+
 ## [0.5.13] — 2026-05-28
 ### Fixed
 - TXT records that Cloudflare stores as a single continuous string

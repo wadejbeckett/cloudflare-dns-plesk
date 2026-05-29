@@ -27,6 +27,7 @@ use Noiz\CloudflareDns\Cloudflare\ZoneSync;
 use Noiz\CloudflareDns\Cloudflare\Zones;
 use Noiz\CloudflareDns\PleskDns\AutoEnable;
 use Noiz\CloudflareDns\PleskDns\LockFile;
+use Noiz\CloudflareDns\PleskDns\SyncableDomain;
 use Noiz\CloudflareDns\PleskDns\ZoneReader;
 
 pm_Loader::registerAutoload();
@@ -153,9 +154,19 @@ if ($onlyDomain !== '') {
     if ($autoEnable) {
         $seen = cfdns_poll_seen_domains();
         $bootstrapped = ((string) pm_Settings::get('seen_domains_bootstrapped', '')) === '1';
+        // Mirror the settings-page filter so auto-enable does not enrol the
+        // server's own hostname or a slave/secondary zone via the back door.
         $allMain = [];
         foreach (\pm_Domain::getAllDomains(true) as $d) {
-            $allMain[] = $d->getName();
+            $name = $d->getName();
+            try {
+                if (!SyncableDomain::isSyncable($name)) {
+                    continue;
+                }
+            } catch (\Throwable $e) {
+                cfdns_poll_log("SyncableDomain::isSyncable threw for '$name': " . $e->getMessage());
+            }
+            $allMain[] = $name;
         }
 
         if (!$bootstrapped) {

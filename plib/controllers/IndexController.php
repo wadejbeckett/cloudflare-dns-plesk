@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Noiz\CloudflareDns\Cloudflare\Client;
+use Noiz\CloudflareDns\PleskDns\SyncableDomain;
 
 /**
  * Admin settings page for the Cloudflare DNS Sync extension.
@@ -325,9 +326,20 @@ class IndexController extends pm_Controller_Action
         // overlapping zone in the same account) or just produce a row whose
         // toggle does nothing. Standalone-subdomain-zones are a deliberate
         // "Later" item on the roadmap.
+        //
+        // SyncableDomain filters out the server's own hostname and any
+        // slave / secondary Plesk zones — see that class for the rationale.
         $names = [];
         foreach (pm_Domain::getAllDomains(true) as $domain) {
-            $names[] = $domain->getName();
+            $name = $domain->getName();
+            try {
+                if (!SyncableDomain::isSyncable($name)) {
+                    continue;
+                }
+            } catch (\Throwable $e) {
+                error_log("cfdns: SyncableDomain::isSyncable threw for '$name': " . $e->getMessage());
+            }
+            $names[] = $name;
         }
         sort($names);
         return $names;
