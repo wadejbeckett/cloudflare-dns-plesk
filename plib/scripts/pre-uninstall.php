@@ -3,13 +3,15 @@
 declare(strict_types=1);
 
 /**
- * Removes the recurring poll task installed by post-install.php and
- * releases the custom-DNS-backend slot if a previous (v0.4.x) install
- * had claimed it.
+ * Removes the recurring poll task installed by post-install.php.
  *
  * On upgrade, post-install rewrites the scheduled task, so removing it
  * here is safe across the upgrade lifecycle (deletion → file swap →
  * post-install re-creates).
+ *
+ * Deliberately does NOT touch Plesk's custom-DNS-backend slot — see the
+ * inline note below for why an upgrade from v0.4.x leaves the slot to
+ * the admin.
  */
 
 $scheduler = pm_Scheduler::getInstance();
