@@ -1,7 +1,15 @@
-/vendor/
+# Composer (per-package, in core/ and panels/*/)
+vendor/
 composer.phar
-/.phpunit.cache/
+
+# PHPUnit (per-package)
+.phpunit.cache/
 .phpunit.result.cache
+
+# Build output
+/dist/
+
+# Secrets / local
 .cloudflare-test-token
 *.log
 .DS_Store
