@@ -1,7 +1,7 @@
 # Roadmap
 
 High-level direction. Granular work items live in
-[GitHub Issues](https://github.com/wadejbeckett/cloudflare-dns-plesk/issues).
+[GitHub Issues](https://github.com/wadejbeckett/cloudflare-dns-sync/issues).
 
 ## Shipped
 

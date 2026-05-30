@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/). The authoritative per-tag detail lives in the
-[GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases).
+[GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-sync/releases).
 
 ## [Unreleased]
 ### Changed

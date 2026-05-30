@@ -7,8 +7,8 @@
     <version>0.5.14</version>
     <release>1</release>
     <vendor>Wade John Beckett</vendor>
-    <vendorUrl>https://github.com/wadejbeckett/cloudflare-dns-plesk</vendorUrl>
-    <url>https://github.com/wadejbeckett/cloudflare-dns-plesk</url>
+    <vendorUrl>https://github.com/wadejbeckett/cloudflare-dns-sync</vendorUrl>
+    <url>https://github.com/wadejbeckett/cloudflare-dns-sync</url>
     <plesk_min_version>18.0.55</plesk_min_version>
     <os>unix</os>
 </module>

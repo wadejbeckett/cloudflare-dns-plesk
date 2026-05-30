@@ -49,11 +49,11 @@ directly.
 ### Recommended: install the pre-built zip
 
 Every tagged release publishes a ready-to-install zip on the
-[GitHub Releases page](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases/latest).
+[GitHub Releases page](https://github.com/wadejbeckett/cloudflare-dns-sync/releases/latest).
 On the Plesk server:
 
 ```sh
-wget https://github.com/wadejbeckett/cloudflare-dns-plesk/releases/latest/download/cloudflare-dns-sync.zip
+wget https://github.com/wadejbeckett/cloudflare-dns-sync/releases/latest/download/cloudflare-dns-sync.zip
 plesk bin extension --install cloudflare-dns-sync.zip
 ```
 
