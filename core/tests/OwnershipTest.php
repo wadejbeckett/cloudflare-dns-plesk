@@ -38,4 +38,26 @@ final class OwnershipTest extends TestCase
         $already = Ownership::MARKER . ' note';
         self::assertSame($already, Ownership::stamp($already));
     }
+
+    public function testMarkerIsPanelNeutral(): void
+    {
+        // The marker must not name a single panel — the core is shared.
+        self::assertSame('[noiz-dns-sync]', Ownership::MARKER);
+    }
+
+    public function testIsManagedStillDetectsTheLegacyPleskMarker(): void
+    {
+        // Records stamped before the panel-neutral rename must never be
+        // orphaned (mis-read as foreign) on a later sync.
+        self::assertTrue(Ownership::isManaged('[plesk-dns-sync]'));
+        self::assertTrue(Ownership::isManaged('[plesk-dns-sync] a human note'));
+    }
+
+    public function testStampLeavesALegacyMarkedCommentUnchanged(): void
+    {
+        // A legacy-marked record is already "ours"; stamp() must not bolt a
+        // second (new) marker onto it, so existing live comments never churn.
+        $legacy = '[plesk-dns-sync] keep me';
+        self::assertSame($legacy, Ownership::stamp($legacy));
+    }
 }

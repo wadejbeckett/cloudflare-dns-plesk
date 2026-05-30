@@ -1,9 +1,10 @@
 {
-    "name": "noiz/cloudflare-dns-plesk",
-    "description": "Non-destructive Cloudflare DNS sync for Plesk — preserves proxy state, comments, tags and page rules.",
+    "name": "noiz/cloudflare-dns-sync-core",
+    "description": "Panel-agnostic Cloudflare DNS sync core — Cloudflare API client and non-destructive reconciliation engine. Shared by the Plesk, DirectAdmin and future panel adapters.",
     "type": "library",
+    "version": "0.1.0",
     "license": "GPL-3.0-or-later",
-    "keywords": ["cloudflare", "dns", "plesk", "sync"],
+    "keywords": ["cloudflare", "dns", "sync"],
     "require": {
         "php": ">=8.1",
         "ext-curl": "*",
@@ -14,7 +15,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Noiz\\CloudflareDns\\": "plib/library/"
+            "Noiz\\CloudflareDns\\": "library/"
         }
     },
     "autoload-dev": {

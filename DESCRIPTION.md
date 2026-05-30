@@ -117,4 +117,4 @@ GPL-3.0-or-later.
 
 ## Source and issues
 
-<https://github.com/wadejbeckett/cloudflare-dns-plesk>
+<https://github.com/wadejbeckett/cloudflare-dns-sync>

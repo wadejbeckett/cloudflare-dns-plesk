@@ -18,13 +18,38 @@ namespace Noiz\CloudflareDns\Cloudflare;
  */
 final class Ownership
 {
-    /** The marker. Cloudflare record comments are free text (~100 char max). */
-    public const MARKER = '[plesk-dns-sync]';
+    /**
+     * The marker written into every managed record's comment. Panel-neutral,
+     * so the same core backs the Plesk, DirectAdmin and future panel adapters.
+     * Cloudflare record comments are free text (~100 char max).
+     */
+    public const MARKER = '[noiz-dns-sync]';
+
+    /**
+     * Markers written by earlier versions. Still recognised as "ours" on read,
+     * so records stamped before the rename are never orphaned (mis-read as
+     * foreign). Detection only — writes always use {@see self::MARKER}, and
+     * existing comments are left untouched, so no migration is required.
+     *
+     * @var string[]
+     */
+    private const LEGACY_MARKERS = ['[plesk-dns-sync]'];
 
     /** True when a Cloudflare record's comment marks the record as ours. */
     public static function isManaged(?string $comment): bool
     {
-        return $comment !== null && strpos($comment, self::MARKER) !== false;
+        if ($comment === null) {
+            return false;
+        }
+        if (strpos($comment, self::MARKER) !== false) {
+            return true;
+        }
+        foreach (self::LEGACY_MARKERS as $legacy) {
+            if (strpos($comment, $legacy) !== false) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

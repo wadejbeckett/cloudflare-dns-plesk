@@ -31,14 +31,15 @@ official Cloudflare extension that this project exists to avoid.
 
 - Plesk Obsidian **18.0.55** or newer
 - A Cloudflare account
-- PHP 8.0+ with `ext-curl` and `ext-json` (bundled with Plesk)
+- PHP 8.1+ with `ext-curl` and `ext-json` (bundled with Plesk)
 
 ## Compatibility
 
 This is a **Plesk** extension and installs only on Plesk. The Cloudflare
-client and diff engine in `plib/library/Cloudflare/` are deliberately
-panel-agnostic, so a **DirectAdmin** adapter is planned that would reuse that
-core unchanged — but it is separate work and not part of this package.
+client and diff engine live in the panel-agnostic `core/` package
+(`core/library/Cloudflare/`) and are shared across panel adapters, so a
+**DirectAdmin** adapter can reuse that core unchanged — see
+[Repository layout](#repository-layout) below.
 
 ## Installation
 
@@ -48,11 +49,11 @@ directly.
 ### Recommended: install the pre-built zip
 
 Every tagged release publishes a ready-to-install zip on the
-[GitHub Releases page](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases/latest).
+[GitHub Releases page](https://github.com/wadejbeckett/cloudflare-dns-sync/releases/latest).
 On the Plesk server:
 
 ```sh
-wget https://github.com/wadejbeckett/cloudflare-dns-plesk/releases/latest/download/cloudflare-dns-sync.zip
+wget https://github.com/wadejbeckett/cloudflare-dns-sync/releases/latest/download/cloudflare-dns-sync.zip
 plesk bin extension --install cloudflare-dns-sync.zip
 ```
 
@@ -60,17 +61,19 @@ Or in Plesk: **Extensions → My Extensions → Upload Extension**, choose the z
 
 ### Build from source
 
-1. **Build the package** from a checkout of this repository:
+1. **Build the package** from a checkout of this repository. The build script
+   bundles the shared `core/` into the Plesk panel and writes the zip to
+   `dist/`:
 
    ```sh
-   zip -r cloudflare-dns-sync.zip meta.xml plib htdocs _meta
+   build/build-panel.sh plesk <version>     # e.g. build/build-panel.sh plesk 0.5.14
    ```
 
 2. **Install it** — in Plesk: **Extensions → My Extensions → Upload Extension**,
    choose the zip. Or from the command line:
 
    ```sh
-   plesk bin extension --install /path/to/cloudflare-dns-sync.zip
+   plesk bin extension --install dist/cloudflare-dns-sync-<version>.zip
    ```
 
 > **Coexists with `slave-dns-manager` and other DNS extensions.** Since
@@ -150,9 +153,11 @@ Plesk's current DNS state via the SDK (`pm_Dns_Zone::getRecords()`), diffs
 it against the live Cloudflare zone, and applies the minimum set of
 `PATCH` / `POST` / `DELETE` calls.
 
-Ownership is tracked by stamping a marker (`[plesk-dns-sync]`) into each
-managed record's Cloudflare comment — so the extension only ever touches
-records it created, and the marker survives a reinstall.
+Ownership is tracked by stamping a panel-neutral marker (`[noiz-dns-sync]`)
+into each managed record's Cloudflare comment — so the extension only ever
+touches records it created, and the marker survives a reinstall. Records
+stamped by older versions (`[plesk-dns-sync]`) are still recognised, so no
+migration is needed.
 
 Earlier versions (v0.4.x) used Plesk's *custom DNS backend* slot for an
 event-driven sync. That mechanism is single-slot and exclusive — claiming
@@ -164,27 +169,37 @@ buttons trigger an immediate sync when you need it now.
 
 ## Repository layout
 
+This repository is a monorepo: a panel-agnostic core shared by per-panel
+adapters.
+
 ```
-meta.xml                       Plesk extension manifest
-_meta/icons/                   Extension icons (32/64/128 PNG)
-htdocs/                        Web entry point
-plib/controllers/              Settings-page controller
-plib/views/                    Settings-page view
-plib/hooks/                    Plesk integration hooks (top-bar search)
-plib/scripts/                  Lifecycle hooks + the sync-poll script
-plib/library/Cloudflare/       Panel-agnostic Cloudflare client + diff engine
-plib/library/PleskDns/         Plesk SDK reader + record-field mapper
-tests/                         PHPUnit unit tests (no network required)
+core/library/Cloudflare/       Panel-agnostic Cloudflare client + diff engine
+core/tests/                    PHPUnit tests for the core (no Plesk runtime)
+core/composer.json             Shared core package (noiz/cloudflare-dns-sync-core)
+panels/plesk/                  Plesk extension — adapter over the core
+  meta.xml                     Plesk extension manifest
+  _meta/icons/                 Extension icons (32/64/128 PNG)
+  htdocs/                      Web entry point
+  plib/controllers/            Settings-page controller
+  plib/views/                  Settings-page view
+  plib/hooks/                  Plesk integration hooks (top-bar search)
+  plib/scripts/                Lifecycle hooks + the sync-poll script
+  plib/library/PleskDns/       Plesk SDK reader + record-field mapper
+  tests/                       Plesk-adapter unit tests
+  composer.json                Plesk package (path-depends on the core)
+build/build-panel.sh           Assembles a panel install zip (core + panel)
 ```
 
-The `Cloudflare\` core has **no Composer runtime dependencies** and no Plesk
-coupling — a DirectAdmin adapter can reuse it as-is.
+The `core/` package has **no Composer runtime dependencies** and no Plesk
+coupling — a DirectAdmin adapter (`panels/directadmin/`) can reuse it as-is.
 
 ## Development
 
+Each package has its own suite; run it from the package directory:
+
 ```sh
-composer install
-composer test
+cd core         && composer install && composer test     # panel-agnostic core
+cd panels/plesk && composer install && composer test     # Plesk adapter
 ```
 
 The tests use a fake HTTP transport, so no Cloudflare account or network

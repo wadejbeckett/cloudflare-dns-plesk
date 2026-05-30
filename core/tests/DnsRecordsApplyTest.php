@@ -7,6 +7,7 @@ namespace Noiz\CloudflareDns\Tests;
 use Noiz\CloudflareDns\Cloudflare\ApiException;
 use Noiz\CloudflareDns\Cloudflare\Client;
 use Noiz\CloudflareDns\Cloudflare\DnsRecords;
+use Noiz\CloudflareDns\Cloudflare\Ownership;
 use Noiz\CloudflareDns\Cloudflare\Record;
 use Noiz\CloudflareDns\Cloudflare\RecordUpdate;
 use Noiz\CloudflareDns\Cloudflare\SyncPlan;
@@ -83,7 +84,7 @@ final class DnsRecordsApplyTest extends TestCase
         self::assertArrayNotHasKey('proxied', $body);
         // Every created record is stamped as managed by this extension.
         self::assertArrayHasKey('comment', $body);
-        self::assertStringContainsString('plesk-dns-sync', (string) $body['comment']);
+        self::assertStringContainsString(Ownership::MARKER, (string) $body['comment']);
     }
 
     public function testAuthorizationHeaderCarriesBearerToken(): void
@@ -185,7 +186,7 @@ final class DnsRecordsApplyTest extends TestCase
         self::assertArrayNotHasKey('content', $body);
         self::assertSame(5060, $body['data']['port']);
         // Still stamped as managed by this extension.
-        self::assertStringContainsString('plesk-dns-sync', (string) $body['comment']);
+        self::assertStringContainsString(Ownership::MARKER, (string) $body['comment']);
     }
 
     public function testTlsaCreateSendsTheDataObjectNotContent(): void
@@ -213,6 +214,6 @@ final class DnsRecordsApplyTest extends TestCase
         self::assertArrayNotHasKey('content', $body);
         self::assertSame(1, $body['data']['matching_type']);
         self::assertSame('abc123', $body['data']['certificate']);
-        self::assertStringContainsString('plesk-dns-sync', (string) $body['comment']);
+        self::assertStringContainsString(Ownership::MARKER, (string) $body['comment']);
     }
 }

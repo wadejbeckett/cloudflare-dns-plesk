@@ -2,7 +2,20 @@
 
 All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/). The authoritative per-tag detail lives in the
-[GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-plesk/releases).
+[GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-sync/releases).
+
+## [Unreleased]
+### Changed
+- **Repository restructured into a monorepo.** The panel-agnostic Cloudflare
+  core now lives in `core/` (composer package `noiz/cloudflare-dns-sync-core`)
+  and the Plesk extension in `panels/plesk/` (`noiz/cloudflare-dns-sync-plesk`,
+  path-depending on the core). The installable Plesk package is built with
+  `build/build-panel.sh plesk <version>` and is byte-for-byte identical to the
+  previous single-tree build — the shipped extension is unchanged.
+- **Ownership marker is now panel-neutral: `[noiz-dns-sync]`** (was
+  `[plesk-dns-sync]`). Records stamped by earlier versions are still recognised
+  as managed, so no migration is required and existing record comments are left
+  untouched; only newly created records use the new marker.
 
 ## [0.5.14] — 2026-05-29
 ### Fixed
