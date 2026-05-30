@@ -23,10 +23,17 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PANEL_DIR="$ROOT/panels/$PANEL"
 CORE_DIR="$ROOT/core"
 DIST="$ROOT/dist"
-OUT="$DIST/cloudflare-dns-sync-$VERSION.zip"
 
 [ -d "$PANEL_DIR" ] || { echo "build-panel: unknown panel '$PANEL' ($PANEL_DIR not found)" >&2; exit 1; }
 [ -d "$CORE_DIR/library/Cloudflare" ] || { echo "build-panel: core not found at $CORE_DIR/library" >&2; exit 1; }
+
+# The extension id (from the panel's meta.xml) drives the zip names, so every
+# panel ships under its own canonical name.
+ID="$(sed -n 's:[[:space:]]*<id>\(.*\)</id>.*:\1:p' "$PANEL_DIR/meta.xml" | head -n1)"
+[ -n "$ID" ] || { echo "build-panel: could not read <id> from $PANEL_DIR/meta.xml" >&2; exit 1; }
+
+OUT="$DIST/$ID-$VERSION.zip"   # versioned, immutable per release
+ALIAS="$DIST/$ID.zip"          # stable name for releases/latest/download/<id>.zip
 
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
@@ -42,7 +49,8 @@ cp "$CORE_DIR/library/autoload.php" "$STAGE/plib/library/autoload.php"
 
 # 3) Package — source.svg is an icon-authoring artefact, not shipped.
 mkdir -p "$DIST"
-rm -f "$OUT"
+rm -f "$OUT" "$ALIAS"
 ( cd "$STAGE" && zip -rq "$OUT" meta.xml plib htdocs _meta -x '_meta/icons/source.svg' )
+cp "$OUT" "$ALIAS"
 
-echo "build-panel: built $OUT"
+echo "build-panel: built $OUT (+ stable alias $ALIAS)"
