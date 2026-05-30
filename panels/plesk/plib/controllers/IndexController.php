@@ -334,6 +334,7 @@ class IndexController extends pm_Controller_Action
                 'enabled' => $isEnabled,
                 'pending' => $isEnabled && $status === null,
                 'status' => $this->describeStatus($isEnabled, $status),
+                'proxy' => $this->describeProxy($isEnabled, $status),
             ];
         }
         return $rows;
@@ -438,5 +439,49 @@ class IndexController extends pm_Controller_Action
             $text .= ', ' . $c . ' conflict' . ($c === 1 ? '' : 's');
         }
         return ['text' => $text, 'class' => 'ok'];
+    }
+
+    /**
+     * Read-only proxy-posture badge for the apex + www of a domain. Orange
+     * ('proxied') only when BOTH apex and www are fully proxied — every
+     * proxiable A/AAAA/CNAME at each name is orange-clouded, so a grey AAAA
+     * reads as "not proxied" (the IPv6 origin leak worth catching). The
+     * per-name verdicts are computed by the poll into the status blob.
+     */
+    private function describeProxy($enabled, $status)
+    {
+        if (!$enabled || !is_array($status)
+            || !isset($status['apex_proxied'], $status['www_proxied'])
+        ) {
+            // Off, never synced, or synced by a pre-proxy-flag build.
+            return ['state' => 'unknown', 'label' => '—', 'title' => 'Proxy status not yet known'];
+        }
+
+        $apex = (string) $status['apex_proxied'];
+        $www = (string) $status['www_proxied'];
+        $title = sprintf('Root: %s · www: %s', $this->proxyWord($apex), $this->proxyWord($www));
+
+        if ($apex === 'missing' || $www === 'missing') {
+            return ['state' => 'missing', 'label' => 'Missing records', 'title' => $title];
+        }
+        if ($apex === 'proxied' && $www === 'proxied') {
+            return ['state' => 'proxied', 'label' => 'Proxied', 'title' => $title];
+        }
+        return ['state' => 'unproxied', 'label' => 'Not proxied', 'title' => $title];
+    }
+
+    /** Human phrasing for a single name's proxy state, used in the badge tooltip. */
+    private function proxyWord($state)
+    {
+        switch ($state) {
+            case 'proxied':
+                return 'proxied';
+            case 'unproxied':
+                return 'not proxied';
+            case 'missing':
+                return 'no A/AAAA/CNAME';
+            default:
+                return 'unknown';
+        }
     }
 }

@@ -23,6 +23,7 @@ use Noiz\CloudflareDns\Cloudflare\ApiException;
 use Noiz\CloudflareDns\Cloudflare\Client;
 use Noiz\CloudflareDns\Cloudflare\DnsRecords;
 use Noiz\CloudflareDns\Cloudflare\Ownership;
+use Noiz\CloudflareDns\Cloudflare\ProxyPosture;
 use Noiz\CloudflareDns\Cloudflare\ZoneSync;
 use Noiz\CloudflareDns\Cloudflare\Zones;
 use Noiz\CloudflareDns\PleskDns\AutoEnable;
@@ -330,6 +331,12 @@ foreach ($enabled as $zoneName) {
         }
         $report = $dns->apply($plan);
 
+        // Proxy posture for the settings-page badge — is the web-facing record
+        // (apex + www) fully orange-clouded? Derived from the records we just
+        // read and carried in the status blob the UI renders.
+        $apexProxied = ProxyPosture::ofName($existing, $zoneName);
+        $wwwProxied = ProxyPosture::ofName($existing, 'www.' . $zoneName);
+
         // Only log when something actually changed — keeps sync.log signal-rich
         // on a polling cadence that may run every minute.
         if ($plan->creates !== [] || $plan->updates !== [] || $plan->deletes !== [] || $plan->adopted !== []) {
@@ -351,6 +358,8 @@ foreach ($enabled as $zoneName) {
                     fn (array $c): string => "{$c['type']}@{$c['name']} ({$c['reason']} vs {$c['foreign_type']})",
                     array_slice($plan->conflicts, 0, 5)
                 ),
+                'apex_proxied' => $apexProxied,
+                'www_proxied' => $wwwProxied,
             ]);
             $hadError = true;
         } else {
@@ -366,6 +375,8 @@ foreach ($enabled as $zoneName) {
                     fn (array $c): string => "{$c['type']}@{$c['name']} ({$c['reason']} vs {$c['foreign_type']})",
                     array_slice($plan->conflicts, 0, 5)
                 ),
+                'apex_proxied' => $apexProxied,
+                'www_proxied' => $wwwProxied,
             ]);
         }
     } catch (ApiException $e) {

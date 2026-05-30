@@ -14,6 +14,13 @@
 .cfdns-status-ok { color: #3a9c3a; }
 .cfdns-status-error { color: #d44; }
 .cfdns-status-muted { color: #999; }
+/* Read-only "is apex+www proxied?" badge. Orange = fully proxied (Cloudflare
+   orange-cloud), grey = not proxied, red = a required record is missing. */
+.cfdns-proxy-badge { display: inline-block; padding: 2px 9px; border-radius: 11px; font-size: 0.82em; font-weight: 600; line-height: 1.5; white-space: nowrap; cursor: default; }
+.cfdns-proxy-proxied { background: #fff3e0; color: #d87b14; border: 1px solid #f3b66b; }
+.cfdns-proxy-unproxied { background: #f3f4f6; color: #666; border: 1px solid #d8dadf; }
+.cfdns-proxy-missing { background: #fdeaea; color: #c0392b; border: 1px solid #f0b6b0; }
+.cfdns-proxy-unknown { color: #bbb; }
 .cfdns-autoenable { margin: 14px 0 4px; }
 .cfdns-autoenable .cfdns-text { margin-left: 10px; }
 .cfdns-section { margin-top: 24px; }
@@ -86,6 +93,11 @@ tr.cfdns-row-active .cfdns-resync { display: inline-block; }
             <td class="cfdns-status cfdns-status-<?php echo $d['pending'] ? 'muted' : $d['status']['class']; ?>"><?php
                 echo htmlspecialchars($d['pending'] ? 'Syncing… please wait' : $d['status']['text']);
             ?></td>
+            <td class="cfdns-proxy">
+                <span class="cfdns-proxy-badge cfdns-proxy-<?php echo htmlspecialchars($d['proxy']['state'], ENT_QUOTES); ?>" title="<?php echo htmlspecialchars($d['proxy']['title'], ENT_QUOTES); ?>"><?php
+                    echo htmlspecialchars($d['proxy']['label']);
+                ?></span>
+            </td>
         </tr>
     <?php endforeach; ?>
     </tbody>

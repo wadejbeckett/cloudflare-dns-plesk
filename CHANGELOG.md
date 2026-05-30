@@ -6,6 +6,18 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [0.5.18] — 2026-05-30
+### Added
+- **Proxy-status badge** on the settings page — a read-only, per-domain
+  indicator of whether the web-facing records (apex + `www`) are proxied
+  through Cloudflare. Shows **Proxied** (orange) only when *every* proxiable
+  A/AAAA/CNAME at both apex and `www` is orange-clouded — so a stray grey-cloud
+  AAAA (an IPv6 origin leak) reads as **Not proxied** rather than masking it;
+  **Missing records** when apex or `www` has no A/AAAA/CNAME. Computed during
+  the existing poll from records already fetched (no extra Cloudflare calls)
+  and stored in the per-domain status; refreshes on page reload. Backed by a
+  new panel-agnostic `Cloudflare\ProxyPosture` core class with unit tests.
+
 ## [0.5.17] — 2026-05-30
 ### Added
 - **Watchdog.** A second scheduled task (every 5 minutes) checks a heartbeat
