@@ -55,6 +55,29 @@ replication for every domain on the server.
   TXT > 2048 byte handling, zone-id cache, skipped-record reporting,
   triggerSync cleanup)
 
+### v0.5.8 → v0.5.18 — conflict handling, monorepo, operational hardening ✅
+
+Per-version detail in [CHANGELOG.md](CHANGELOG.md); the band in brief:
+
+- v0.5.8–v0.5.9 — codebase-audit follow-ups; N1 activation fix; catalog-prep groundwork
+- v0.5.11 — type-conflict detection (RFC 1034 same-name / incompatible-type):
+  suppress the doomed CREATE and surface a conflict instead of looping `[81053]`
+- v0.5.12 — content-conflict detection (foreign same-name/same-type, different
+  content): refuse to duplicate, surface for manual resolution
+- v0.5.13 — TXT chunk-separator normalisation (BIND 255-byte chunks vs CF's
+  single string) so DKIM/SPF/DMARC stop false-flagging as conflicts
+- v0.5.14 — hide the server's own hostname + slave/secondary zones from the
+  syncable list (`SyncableDomain`)
+- v0.5.15 — **multi-panel monorepo** (`core/` + `panels/plesk/`) and
+  panel-neutral ownership marker `[noiz-dns-sync]` (legacy `[plesk-dns-sync]`
+  still recognised, no migration)
+- v0.5.16 — scheduled-poll **run-lock**: a slow domain can no longer cause
+  overlapping cycles / "another sync in progress" skip-line pile-up
+- v0.5.17 — **baked-in watchdog** (emails the admin + settings-page banner if
+  the poll heartbeat goes stale) + in-code **log rotation** + log-path note
+- v0.5.18 — **per-domain proxy-status badge** (apex + `www`; orange only when
+  every proxiable A/AAAA/CNAME is proxied — a grey AAAA reads as "not proxied")
+
 ## Now
 
 ### v0.6 — close the slave-replication origin leak 🛡
@@ -79,9 +102,11 @@ the Cloudflare proxy entirely.
 
 ### v0.7 — Cloudflare proxy-status audit view
 
-Operator workflow: "tell me which Cloudflare zones have proxied
-records so I can decide which domains to activate sync for here."
-Today this requires opening each zone in Cloudflare's dashboard.
+**Partly delivered:** v0.5.18 added a per-domain proxied badge (apex + `www`)
+for domains already *activated* here. This item is the broader, **account-wide**
+view — "which Cloudflare zones (including ones NOT yet activated in this
+extension) have proxied records, so I can decide what to activate." That still
+requires opening each zone in Cloudflare's dashboard today.
 
 - [ ] New controller action `proxyStatusAction` that queries
       Cloudflare for every zone the account holds, reads each zone's
@@ -119,8 +144,29 @@ false-positive notification per domain. Investigate Plesk's
 notification suppression APIs (per-domain ideal, server-wide as
 fallback). No clean documented path yet — research first.
 
+### Settings-page UX — list filters + Cloudflare deep-link
+
+Quality-of-life for the domains table as the activated-domain count grows.
+All read-only / front-end; safe to ship as one small release:
+
+- [ ] Filter toggle — show synced vs unsynced domains.
+- [ ] Domain search field — filter the table by name.
+- [ ] Per-row "open in Cloudflare" deep-link (new tab) to the zone's DNS
+      editor for a quick proxy check/manage. URL built from the stored
+      account ID + zone name. Read-only convenience.
+
 ## Later
 
+- [ ] **One-click "enable proxy" action** — its OWN major release, never
+      bundled with the read-only UX above. An explicit, confirmed, opt-in
+      button that sets `proxied=true` on the apex + `www` A/AAAA/CNAME
+      records (whichever exist) to turn the proxy badge orange. This is the
+      *one* deliberate exception to "proxy state is Cloudflare-owned": the
+      background sync stays non-destructive; only this operator-initiated
+      action writes proxy state. Requires a consequences modal (proxying
+      only suits HTTP/HTTPS; the wrong CF SSL mode / missing origin cert can
+      break the site), a panel-agnostic `DnsRecords::setProxied`, and
+      real-Cloudflare dev validation before neo.
 - [ ] **Gate activation on Plesk-DNS-enabled state.** When DNS is off
       in Plesk for a domain, the row should disable the toggle and
       explain why. Without this, a customer using Cloudflare standalone
