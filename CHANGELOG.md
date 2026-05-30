@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 [GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-sync/releases).
 
 ## [Unreleased]
+
+## [0.5.15] — 2026-05-30
 ### Changed
 - **Repository restructured into a monorepo.** The panel-agnostic Cloudflare
   core now lives in `core/` (composer package `noiz/cloudflare-dns-sync-core`)
