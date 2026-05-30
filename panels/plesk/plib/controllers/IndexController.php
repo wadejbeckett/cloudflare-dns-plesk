@@ -53,6 +53,7 @@ class IndexController extends pm_Controller_Action
         $this->view->domainStatusUrl = pm_Context::getActionUrl('index', 'domain-status');
         $this->view->resyncDomainUrl = pm_Context::getActionUrl('index', 'resync-domain');
         $this->view->resyncAllUrl = pm_Context::getActionUrl('index', 'resync-all');
+        $this->view->logPath = rtrim(pm_Context::getVarDir(), '/') . '/sync.log';
     }
 
     /**
@@ -242,6 +243,12 @@ class IndexController extends pm_Controller_Action
             'description' => 'Required so the extension can create Cloudflare zones for the domains you activate.',
         ]);
 
+        $form->addElement('text', 'alert_email', [
+            'label' => 'Alert email (optional)',
+            'value' => pm_Settings::get('alert_email'),
+            'description' => 'Emailed if the background sync stalls. Leave blank to use the Plesk administrator address.',
+        ]);
+
         $form->addControlButtons([
             'sendTitle' => 'Save',
             'cancelLink' => pm_Context::getModulesListUrl(),
@@ -276,6 +283,7 @@ class IndexController extends pm_Controller_Action
 
         pm_Settings::set('api_token', $token);
         pm_Settings::set('account_id', trim((string) $form->getValue('account_id')));
+        pm_Settings::set('alert_email', trim((string) $form->getValue('alert_email')));
     }
 
     private function showConnectionStatus()
@@ -296,6 +304,20 @@ class IndexController extends pm_Controller_Action
             $this->_status->addMessage('info', 'Connected to Cloudflare.');
         } else {
             $this->_status->addMessage('error', 'The stored Cloudflare API token is no longer valid.');
+        }
+
+        // Surface the watchdog's verdict: if the scheduled poll has gone
+        // silent, warn prominently here (it also emails the admin). The flag
+        // stores the last completed poll's timestamp, or '0' if none yet.
+        $stalled = (string) pm_Settings::get('sync_stalled', '');
+        if ($stalled !== '') {
+            $since = (int) $stalled;
+            $this->_status->addMessage('error', sprintf(
+                'Background sync appears stalled (last completed poll: %s). Activated domains '
+                . 'are not being reconciled with Cloudflare until it recovers — check the '
+                . 'scheduled task on the server: crontab -l -u psaadm | grep sync-poll',
+                $since > 0 ? date('Y-m-d H:i', $since) : 'not since install'
+            ));
         }
     }
 

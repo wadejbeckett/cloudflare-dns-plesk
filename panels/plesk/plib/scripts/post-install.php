@@ -20,39 +20,67 @@ declare(strict_types=1);
 
 $scheduler = pm_Scheduler::getInstance();
 
-// Remove any prior scheduled tasks from this module before adding the new
-// one — so an upgrade or reinstall doesn't accumulate duplicates.
+// The scheduled tasks this module wants, keyed by the script they run:
+//   sync-poll.php — the every-minute reconcile (cheap: one CF zone-read per
+//     activated domain per cycle, so per-minute gives near-real-time sync
+//     without straining Cloudflare's rate limits at any realistic domain count).
+//   watchdog.php  — every 5 minutes; alerts if the poll heartbeat goes stale
+//     (guards the silent-scheduler failure mode behind the 2026-05-25 outage).
+// pm_Scheduler_Task::setCmd() resolves the name against the module's scripts/
+// dir; Plesk wraps it as `php -dauto_prepend_file=sdk.php scripts/<cmd>` so the
+// SDK is bootstrapped at runtime.
+$wanted = [
+    'sync-poll.php' => pm_Scheduler::$EVERY_MIN,
+    'watchdog.php'  => pm_Scheduler::$EVERY_5_MIN,
+];
+
+// Reconcile idempotently rather than "remove everything then re-add". An
+// upgrade/reinstall re-runs this with the previous tasks still registered;
+// we KEEP each wanted task that already exists (so re-adding the poll never
+// deletes the sibling watchdog), and remove only strays and duplicates. This
+// converges to exactly one of each — no accumulation (the outage class) and no
+// collateral deletion. NOTE: because matching tasks are left untouched, a
+// future *schedule* change for an existing cmd must force-remove it first.
+$have = [];
 foreach ($scheduler->listTasks() as $existing) {
+    $cmd = method_exists($existing, 'getCmd') ? (string) $existing->getCmd() : '';
+    if (!isset($wanted[$cmd]) || isset($have[$cmd])) {
+        try {
+            $scheduler->removeTask($existing);
+        } catch (\Throwable $e) {
+            // Best-effort cleanup — continue. Log to STDERR so an operator can
+            // see why a stale task wasn't removed (e.g. permissions).
+            $taskId = method_exists($existing, 'getId') ? (string) $existing->getId() : 'unknown';
+            fwrite(STDERR, "Failed to remove stale task '{$taskId}': {$e->getMessage()}\n");
+        }
+        continue;
+    }
+    $have[$cmd] = true;
+}
+
+foreach ($wanted as $cmd => $schedule) {
+    if (isset($have[$cmd])) {
+        continue; // already registered — leave it untouched
+    }
+    $task = new pm_Scheduler_Task();
+    $task->setCmd($cmd);
+    $task->setSchedule($schedule);
     try {
-        $scheduler->removeTask($existing);
+        $scheduler->putTask($task);
     } catch (\Throwable $e) {
-        // Best-effort cleanup — continue. Log to STDERR so an operator
-        // can see why a stale task wasn't removed (e.g. permissions).
-        $taskId = method_exists($existing, 'getId') ? (string) $existing->getId() : 'unknown';
-        fwrite(STDERR, "Failed to remove stale task '{$taskId}': {$e->getMessage()}\n");
+        echo "Failed to register the Cloudflare DNS Sync '{$cmd}' task: " . $e->getMessage() . "\n";
+        echo "The extension is installed but may not poll/monitor automatically. ";
+        echo "Use the resync buttons in the UI to trigger syncs manually.\n";
+        exit(1);
     }
 }
 
-// pm_Scheduler_Task::setCmd() resolves to the module's scripts/ directory,
-// so pass just the script name — Plesk wraps it as
-// `php -dauto_prepend_file=sdk.php scripts/sync-poll.php` which gives us
-// the Plesk SDK already bootstrapped at runtime.
-//
-// EVERY_MIN is the smallest preset Plesk's scheduler exposes. The poll is
-// cheap (one CF zone-read per activated domain per cycle), so per-minute
-// gives near-real-time sync without hitting Cloudflare's API rate limits
-// for any realistic activated-domain count.
-$task = new pm_Scheduler_Task();
-$task->setCmd('sync-poll.php');
-$task->setSchedule(pm_Scheduler::$EVERY_MIN);
-
-try {
-    $scheduler->putTask($task);
-} catch (\Throwable $e) {
-    echo "Failed to register the Cloudflare DNS Sync scheduled task: " . $e->getMessage() . "\n";
-    echo "The extension is installed but will not poll automatically. ";
-    echo "Use the resync buttons in the UI to trigger syncs manually.\n";
-    exit(1);
+// Seed the watchdog heartbeat so a fresh install has a baseline: the
+// every-minute poll refreshes it within ~60s, and if the poll never runs the
+// seeded value ages out and the watchdog fires (catching "poll never started").
+// Only seed when absent, so an upgrade preserves the real last-run time.
+if ((string) pm_Settings::get('last_poll_ts', '') === '') {
+    pm_Settings::set('last_poll_ts', (string) time());
 }
 
 // We deliberately do NOT touch the custom-DNS-backend slot here. Earlier

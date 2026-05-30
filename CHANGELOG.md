@@ -6,6 +6,25 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [0.5.17] — 2026-05-30
+### Added
+- **Watchdog.** A second scheduled task (every 5 minutes) checks a heartbeat
+  the poll writes each cycle; if the every-minute poll stops running while the
+  extension is configured, it emails the administrator and shows a banner on the
+  settings page. This guards the silent-scheduler failure mode behind the
+  2026-05-25 outage. New optional **"Alert email"** setting overrides the
+  recipient (defaults to the Plesk administrator address).
+- Settings page now shows the on-server path of `sync.log`.
+### Changed
+- **`sync.log` is now rotated in-code** — capped at ~5 MB with two prior
+  generations kept (`sync.log.1`, `sync.log.2`). Self-contained in the
+  extension's var dir (no `/etc/logrotate.d` file to leave behind), so it stays
+  clean-uninstall-safe and ports to any future panel adapter.
+- `post-install` now reconciles its scheduled tasks idempotently (keeps the
+  poll and the watchdog, removes only strays/duplicates) instead of
+  remove-all-then-re-add — so registering the watchdog never deletes the poll,
+  and upgrades still converge to exactly one of each.
+
 ## [0.5.16] — 2026-05-30
 ### Fixed
 - **Scheduled polls no longer pile up under load.** A slow domain (Cloudflare

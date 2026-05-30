@@ -48,6 +48,25 @@ function cfdns_poll_log(string $message): void
     );
 }
 
+/**
+ * Roll sync.log when it grows past a size cap, keeping two prior generations
+ * (sync.log.1, sync.log.2). Self-contained in the extension's var dir — no
+ * /etc/logrotate.d file to leave behind on uninstall, and it ports to any
+ * future panel adapter. Called once per scheduled cycle under the run lock,
+ * so generations never race with a concurrent cycle.
+ */
+function cfdns_poll_rotate_log(): void
+{
+    $log = rtrim(pm_Context::getVarDir(), '/') . '/sync.log';
+    if (!is_file($log) || (int) @filesize($log) < 5 * 1024 * 1024) {
+        return;
+    }
+    // Shift generations oldest-first, then the current log becomes .1. The
+    // next cfdns_poll_log() append recreates a fresh sync.log.
+    @rename($log . '.1', $log . '.2');
+    @rename($log, $log . '.1');
+}
+
 function cfdns_poll_enabled_domains(): array
 {
     $list = json_decode((string) pm_Settings::get('enabled_domains', '[]'), true);
@@ -183,6 +202,10 @@ if ($onlyDomain !== '') {
     if ($runFp === null) {
         exit(0);
     }
+
+    // Bound the log before this cycle writes to it (serialised by the run
+    // lock above, so rotation never races with a concurrent scheduled cycle).
+    cfdns_poll_rotate_log();
 
     // Scheduled poll. Honour "Auto-enable new domains": enrol each Plesk
     // main domain EXACTLY ONCE — the first time the cron sees it. After
@@ -357,6 +380,15 @@ foreach ($enabled as $zoneName) {
         @flock($lockFp, LOCK_UN);
         @fclose($lockFp);
     }
+}
+
+// Heartbeat: record that a full SCHEDULED cycle ran to completion (even if
+// some domains errored — the watchdog cares whether the poll is *running*, not
+// whether every record synced; per-domain failures surface via status_<zone>).
+// The Resync-UI path ($onlyDomain) is excluded so a single-domain resync never
+// masks a stalled scheduler. watchdog.php compares this against time().
+if ($onlyDomain === '') {
+    pm_Settings::set('last_poll_ts', (string) time());
 }
 
 exit($hadError ? 255 : 0);

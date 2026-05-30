@@ -104,6 +104,12 @@ tr.cfdns-row-active .cfdns-resync { display: inline-block; }
     <span class="cfdns-text">Auto-enable new domains — a domain added in Plesk starts syncing automatically.</span>
 </div>
 
+<p class="cfdns-logpath">
+    Sync activity is logged to
+    <code><?php echo htmlspecialchars((string) $this->logPath, ENT_QUOTES); ?></code>
+    on the server (rotated automatically — capped at ~5&nbsp;MB, two prior copies kept).
+</p>
+
 <!-- Activation confirmation modal: shown before any domain activation so that
      the operator can't accidentally activate a DNSSEC-signed domain or one
      whose registrar nameservers haven't been pointed at Cloudflare. -->

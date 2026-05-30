@@ -3,10 +3,12 @@
 declare(strict_types=1);
 
 /**
- * Removes the recurring poll task installed by post-install.php.
+ * Removes the recurring scheduled tasks (the every-minute poll and the
+ * watchdog) installed by post-install.php — it clears every task this
+ * module holds, so both go.
  *
- * On upgrade, post-install rewrites the scheduled task, so removing it
- * here is safe across the upgrade lifecycle (deletion → file swap →
+ * On upgrade, post-install re-reconciles the scheduled tasks, so removing
+ * them here is safe across the upgrade lifecycle (deletion → file swap →
  * post-install re-creates).
  *
  * Deliberately does NOT touch Plesk's custom-DNS-backend slot — see the
