@@ -6,6 +6,18 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [0.5.16] — 2026-05-30
+### Fixed
+- **Scheduled polls no longer pile up under load.** A slow domain (Cloudflare
+  latency plus the API client's retry budget) could stretch one poll cycle past
+  the every-minute cron interval, so the next cron found each domain's
+  per-domain lock held and logged a `another sync in progress, skipping this
+  cycle` line per domain — a recurring burst of log noise plus duplicated work.
+  A scheduled cycle now takes a single process-wide run lock
+  (`sync-poll-all.lock`) and an overlapping cycle exits at once and silently.
+  The on-demand "Resync this domain" path is unaffected (it never takes the run
+  lock, so a manual resync is never blocked by a long scheduled cycle).
+
 ## [0.5.15] — 2026-05-30
 ### Changed
 - **Repository restructured into a monorepo.** The panel-agnostic Cloudflare

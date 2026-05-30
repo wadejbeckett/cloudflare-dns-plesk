@@ -104,6 +104,33 @@ function cfdns_poll_lock(string $domain)
     return $fp;
 }
 
+/**
+ * Acquire the process-wide, non-blocking run lock for a scheduled poll.
+ *
+ * A single slow domain (Cloudflare latency plus the API client's retry
+ * budget) can stretch one cycle past the every-minute cron interval. Without
+ * a whole-run guard the next cron then wakes, finds each domain's per-domain
+ * lock held by the still-running cycle, and logs a "another sync in progress"
+ * line per domain — a burst of noise plus duplicated work. Taking one run
+ * lock at the top of a scheduled cycle means an overlapping cycle exits at
+ * once and silently instead. flock is released automatically on process exit,
+ * so a crashed cycle never wedges the lock (the 0-byte file is harmless).
+ *
+ * @return resource|null  fp held for the run, or null when one already runs.
+ */
+function cfdns_poll_run_lock()
+{
+    $path = rtrim(pm_Context::getVarDir(), '/') . '/sync-poll-all.lock';
+
+    $fp = LockFile::open($path);
+
+    if (!@flock($fp, LOCK_EX | LOCK_NB)) {
+        fclose($fp);
+        return null;
+    }
+    return $fp;
+}
+
 /** Look up a Cloudflare zone ID, using a pm_Settings cache to avoid
  *  one CF API call per domain per poll cycle. Falls back to the live
  *  CF API on cache miss; auto-creates the zone if $accountId is set. */
@@ -145,6 +172,18 @@ if ($onlyDomain !== '') {
         exit(0);
     }
 } else {
+    // Whole-run guard: serialise scheduled cycles. If a previous scheduled
+    // poll is still running (a slow domain stretched it past the cron
+    // interval), skip this entire cycle at once rather than emitting a
+    // per-domain "another sync in progress" burst. The Resync-UI path
+    // ($onlyDomain) deliberately does NOT take this lock, so a manual resync
+    // is never blocked by a long scheduled cycle — its per-domain lock is
+    // enough. The fp is held for the whole run and released on process exit.
+    $runFp = cfdns_poll_run_lock();
+    if ($runFp === null) {
+        exit(0);
+    }
+
     // Scheduled poll. Honour "Auto-enable new domains": enrol each Plesk
     // main domain EXACTLY ONCE — the first time the cron sees it. After
     // that the domain's enable/disable state is operator-controlled. A
