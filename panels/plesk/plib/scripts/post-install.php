@@ -83,6 +83,25 @@ if ((string) pm_Settings::get('last_poll_ts', '') === '') {
     pm_Settings::set('last_poll_ts', (string) time());
 }
 
+// One-off permission sweep on upgrade (v0.5.19 hardening): lock files and
+// sync.log generations created by earlier versions are world-accessible
+// (0666/0644), which lets any local user flock a lock and stall the sync,
+// or read the log. New files are born 0660 group-aligned (see LockFile);
+// this repairs the ones that already exist. post-install runs privileged,
+// so it can fix root-owned leftovers the psaadm poll can never repair.
+$varDir = rtrim(pm_Context::getVarDir(), '/');
+$varDirGroup = @filegroup($varDir);
+$legacyFiles = array_merge(
+    glob($varDir . '/*.lock') ?: [],
+    glob($varDir . '/sync.log*') ?: []
+);
+foreach ($legacyFiles as $legacyFile) {
+    if ($varDirGroup !== false) {
+        @chgrp($legacyFile, $varDirGroup);
+    }
+    @chmod($legacyFile, 0660);
+}
+
 // We deliberately do NOT touch the custom-DNS-backend slot here. Earlier
 // versions called `server_dns --disable-custom-backend` defensively to
 // release the slot, but that turned out to be a hidden trap: when

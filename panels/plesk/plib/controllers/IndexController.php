@@ -281,9 +281,25 @@ class IndexController extends pm_Controller_Action
             throw new pm_Exception('That Cloudflare API token could not be verified — settings were not saved.');
         }
 
+        // Validate the two free-text fields before storing. account_id flows
+        // into the Cloudflare API; alert_email becomes a mail() recipient in
+        // the background watchdog. Reject malformed values here rather than
+        // letting them break sync or the alert silently downstream.
+        $accountId = strtolower(trim((string) $form->getValue('account_id')));
+        if ($accountId !== '' && !preg_match('/^[a-f0-9]{32}$/', $accountId)) {
+            throw new pm_Exception('Cloudflare account ID must be a 32-character hex value.');
+        }
+        $alertEmail = trim((string) $form->getValue('alert_email'));
+        if ($alertEmail !== '' && !filter_var($alertEmail, FILTER_VALIDATE_EMAIL)) {
+            throw new pm_Exception(
+                'Alert email is not a valid email address. '
+                . 'Leave it blank to use the Plesk administrator address.'
+            );
+        }
+
         pm_Settings::set('api_token', $token);
-        pm_Settings::set('account_id', trim((string) $form->getValue('account_id')));
-        pm_Settings::set('alert_email', trim((string) $form->getValue('alert_email')));
+        pm_Settings::set('account_id', $accountId);
+        pm_Settings::set('alert_email', $alertEmail);
     }
 
     private function showConnectionStatus()

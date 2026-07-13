@@ -16,4 +16,7 @@ composer.phar
 .idea/
 .vscode/
 
+# OMC tooling state (matches .omc/ at any depth)
+.omc/
+
 /_internal/

@@ -42,11 +42,25 @@ function cfdns_poll_log(string $message): void
     // Cloudflare error message with embedded newlines) cannot forge log lines.
     $message = strtr($message, ["\r" => ' ', "\n" => ' ', "\0" => '']);
     fwrite(STDOUT, 'cloudflare-dns-sync-poll: ' . $message . "\n");
+    $path = rtrim(pm_Context::getVarDir(), '/') . '/sync.log';
+    $isNew = !file_exists($path);
     @file_put_contents(
-        rtrim(pm_Context::getVarDir(), '/') . '/sync.log',
+        $path,
         '[' . date('Y-m-d H:i:s') . '] [poll] ' . $message . "\n",
         FILE_APPEND
     );
+    if ($isNew) {
+        // Same posture as the lock files (see LockFile): owner+group only,
+        // group aligned to the var dir's so root- and psaadm-created logs
+        // stay appendable by the other uid. The log carries every zone name
+        // and sync diff — keep it out of world-readable reach. Best-effort:
+        // both calls silently no-op when we don't own the file.
+        $dirGroup = @filegroup(dirname($path));
+        if ($dirGroup !== false) {
+            @chgrp($path, $dirGroup);
+        }
+        @chmod($path, 0660);
+    }
 }
 
 /**
@@ -199,7 +213,15 @@ if ($onlyDomain !== '') {
     // ($onlyDomain) deliberately does NOT take this lock, so a manual resync
     // is never blocked by a long scheduled cycle — its per-domain lock is
     // enough. The fp is held for the whole run and released on process exit.
-    $runFp = cfdns_poll_run_lock();
+    try {
+        $runFp = cfdns_poll_run_lock();
+    } catch (\RuntimeException $e) {
+        // Same degradation as the per-domain locks: a permissions-pathological
+        // var dir (e.g. root:root) must surface as a logged error the watchdog
+        // can catch, not an uncaught fatal with no log line.
+        cfdns_poll_log('run lock acquisition failed: ' . $e->getMessage());
+        exit(1);
+    }
     if ($runFp === null) {
         exit(0);
     }

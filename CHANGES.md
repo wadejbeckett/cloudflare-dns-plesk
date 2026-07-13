@@ -9,6 +9,115 @@ All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/). The authoritative per-tag detail lives in the
 [GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-sync/releases).
 
+## [0.5.19] — 2026-07-13
+### Security
+Hardening pass following a full code audit — all defense-in-depth; no
+exploitable vulnerability was found in 0.5.18.
+- **Lock files and `sync.log` are no longer world-accessible.** Advisory-lock
+  files in the extension var dir are now born `0660` (umask-bracketed, so
+  there is no world-readable window) with their group aligned to the var
+  dir's group, so an unprivileged local user can no longer open a lock and
+  hold it to stall the scheduled sync. `sync.log` gets the same treatment on
+  creation, keeping zone names and sync diffs out of world-readable reach.
+  On upgrade, `post-install` sweeps files left behind by earlier versions to
+  the new permissions. Cross-uid locking (scheduler vs. manual root runs)
+  keeps working via the group grant.
+- **Cloudflare ids are validated before URL use.** Zone and record ids are
+  checked against a strict character allowlist before being interpolated
+  into API request paths, and the client rejects request paths containing
+  whitespace, `?`, `#`, or control bytes — closing any path/query-injection
+  route via a crafted id.
+- **Settings are validated on save.** The Cloudflare account ID must be a
+  32-character hex id and the alert email must be a valid address; malformed
+  values are rejected with a clear error instead of breaking sync or the
+  watchdog alert downstream.
+### Changed
+- **API retries now also carry a wall-clock ceiling.** Retrying was already
+  bounded by the retry count (3 attempts, 30s transport timeout each); a
+  ~2-minute wall-clock budget now backstops it so a future change to either
+  knob can never let a degraded upstream stall a poll cycle unboundedly.
+
+## [0.5.18] — 2026-05-30
+### Added
+- **Proxy-status badge** on the settings page — a read-only, per-domain
+  indicator of whether the web-facing records (apex + `www`) are proxied
+  through Cloudflare. Shows **Proxied** (orange) only when *every* proxiable
+  A/AAAA/CNAME at both apex and `www` is orange-clouded — so a stray grey-cloud
+  AAAA (an IPv6 origin leak) reads as **Not proxied** rather than masking it;
+  **Missing records** when apex or `www` has no A/AAAA/CNAME. Computed during
+  the existing poll from records already fetched (no extra Cloudflare calls)
+  and stored in the per-domain status; refreshes on page reload. Backed by a
+  new panel-agnostic `Cloudflare\ProxyPosture` core class with unit tests.
+
+## [0.5.17] — 2026-05-30
+### Added
+- **Watchdog.** A second scheduled task (every 5 minutes) checks a heartbeat
+  the poll writes each cycle; if the every-minute poll stops running while the
+  extension is configured, it emails the administrator and shows a banner on the
+  settings page. This guards the silent-scheduler failure mode behind the
+  2026-05-25 outage. New optional **"Alert email"** setting overrides the
+  recipient (defaults to the Plesk administrator address).
+- Settings page now shows the on-server path of `sync.log`.
+### Changed
+- **`sync.log` is now rotated in-code** — capped at ~5 MB with two prior
+  generations kept (`sync.log.1`, `sync.log.2`). Self-contained in the
+  extension's var dir (no `/etc/logrotate.d` file to leave behind), so it stays
+  clean-uninstall-safe and ports to any future panel adapter.
+- `post-install` now reconciles its scheduled tasks idempotently (keeps the
+  poll and the watchdog, removes only strays/duplicates) instead of
+  remove-all-then-re-add — so registering the watchdog never deletes the poll,
+  and upgrades still converge to exactly one of each.
+
+## [0.5.16] — 2026-05-30
+### Fixed
+- **Scheduled polls no longer pile up under load.** A slow domain (Cloudflare
+  latency plus the API client's retry budget) could stretch one poll cycle past
+  the every-minute cron interval, so the next cron found each domain's
+  per-domain lock held and logged a `another sync in progress, skipping this
+  cycle` line per domain — a recurring burst of log noise plus duplicated work.
+  A scheduled cycle now takes a single process-wide run lock
+  (`sync-poll-all.lock`) and an overlapping cycle exits at once and silently.
+  The on-demand "Resync this domain" path is unaffected (it never takes the run
+  lock, so a manual resync is never blocked by a long scheduled cycle).
+
+## [0.5.15] — 2026-05-30
+### Changed
+- **Repository restructured into a monorepo.** The panel-agnostic Cloudflare
+  core now lives in `core/` (composer package `noiz/cloudflare-dns-sync-core`)
+  and the Plesk extension in `panels/plesk/` (`noiz/cloudflare-dns-sync-plesk`,
+  path-depending on the core). The installable Plesk package is built with
+  `build/build-panel.sh plesk <version>` and is byte-for-byte identical to the
+  previous single-tree build — the shipped extension is unchanged.
+- **Ownership marker is now panel-neutral: `[noiz-dns-sync]`** (was
+  `[plesk-dns-sync]`). Records stamped by earlier versions are still recognised
+  as managed, so no migration is required and existing record comments are left
+  untouched; only newly created records use the new marker.
+
+## [0.5.14] — 2026-05-29
+### Fixed
+- The Plesk server's own hostname (e.g. `neo.noiz.co.za` on neo) is
+  no longer offered as a syncable row in the settings page or
+  auto-enrolled by the cron. Activating sync on the server's own
+  domain risked panel reachability if Cloudflare is authoritative
+  for the parent zone. New helper `Noiz\CloudflareDns\PleskDns\
+  SyncableDomain::isSyncable` filters in both the settings page
+  and the auto-enable path.
+- Slave / secondary Plesk zones no longer appear as syncable either.
+  These mirror an external primary nameserver in Plesk and have no
+  Plesk-authored content of their own; syncing them to Cloudflare
+  as authoritative would push empty or stale records. Zone type is
+  detected via `pm_Dns_Zone::getType()` when available, falling
+  back to a `SELECT type FROM dns_zone` query, defaulting to
+  inclusion if neither path can answer (so a misconfigured Plesk
+  doesn't silently hide working domains).
+### Added
+- `plib/library/PleskDns/SyncableDomain.php` — pure helper for the
+  syncability predicate.
+- `tests/SyncableDomainTest.php` — host-sensitive unit coverage
+  of the gethostname comparison. Zone-type detection is Plesk-
+  runtime-dependent and covered by manual integration testing.
+  Suite: 75 tests, 202 assertions, all green on Plesk PHP 8.3.31.
+
 ## [0.5.13] — 2026-05-28
 ### Fixed
 - TXT records that Cloudflare stores as a single continuous string

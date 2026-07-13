@@ -15,12 +15,36 @@ final class DnsRecords
 
     public function __construct(Client $client, string $zoneId)
     {
-        if (trim($zoneId) === '') {
+        $zoneId = trim($zoneId);
+        if ($zoneId === '') {
             throw new ApiException('A Cloudflare zone id is required.');
         }
 
         $this->client = $client;
-        $this->zoneId = $zoneId;
+        $this->zoneId = self::assertId($zoneId, 'zone');
+    }
+
+    /**
+     * Guard an id that gets interpolated into the request URL path against
+     * path/query injection. Cloudflare ids are word characters; reject any
+     * URL-structural character (`/ ? # :` whitespace, control bytes) and
+     * dot-segments (`.` / `..` — the latter would retarget the request one
+     * path level up, e.g. turning a record DELETE into a zone DELETE).
+     * Defense in depth — ids originate from Cloudflare's own API responses,
+     * but this keeps a crafted/compromised value from rewriting the path.
+     * /D pins `$` to the true end of the string (PCRE otherwise lets a
+     * trailing newline through).
+     */
+    private static function assertId(string $id, string $what): string
+    {
+        if (!preg_match('/^[A-Za-z0-9._-]+$/D', $id)
+            || strpos($id, '..') !== false
+            || trim($id, '.') === ''
+        ) {
+            throw new ApiException(sprintf('Invalid Cloudflare %s id.', $what));
+        }
+
+        return $id;
     }
 
     /**
@@ -91,6 +115,7 @@ final class DnsRecords
         if ($id === null) {
             throw new ApiException('Cannot update a record without a Cloudflare id.');
         }
+        self::assertId($id, 'record');
 
         $result = $this->client->request('PATCH', $this->base() . '/' . $id, $update->patchPayload());
         if (!is_array($result)) {
@@ -110,6 +135,7 @@ final class DnsRecords
         if ($record->id === null) {
             throw new ApiException('Cannot adopt a record without a Cloudflare id.');
         }
+        self::assertId($record->id, 'record');
 
         $this->client->request('PATCH', $this->base() . '/' . $record->id, [
             'comment' => Ownership::stamp($record->comment),
@@ -124,6 +150,7 @@ final class DnsRecords
         if ($record->id === null) {
             throw new ApiException('Cannot delete a record without a Cloudflare id.');
         }
+        self::assertId($record->id, 'record');
 
         $this->client->request('DELETE', $this->base() . '/' . $record->id);
     }

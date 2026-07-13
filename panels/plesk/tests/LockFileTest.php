@@ -58,10 +58,13 @@ final class LockFileTest extends TestCase
         self::assertIsResource($fp);
         self::assertFileExists($path);
 
-        // chmod 0666 is best-effort and subject to the process umask.
-        // Verify the world-readable bit at minimum — the chmod call ran.
+        // chmod 0660 ran (we own the freshly created file), so the group bit
+        // is set and — crucially — the world bits are clear. A world-writable
+        // lock on a predictable path is a local DoS vector (any user could
+        // grab LOCK_EX and wedge every sync), which is what 0660 prevents.
         $mode = fileperms($path) & 0777;
-        self::assertGreaterThan(0, $mode & 0004, 'file should be at least world-readable');
+        self::assertGreaterThan(0, $mode & 0060, 'lock file should be group-accessible');
+        self::assertSame(0, $mode & 0007, 'lock file must not be world-accessible');
 
         fclose($fp);
     }

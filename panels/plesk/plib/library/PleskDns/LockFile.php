@@ -28,8 +28,14 @@ final class LockFile
     public static function open(string $path)
     {
         // Preferred path: write-mode 'c' creates the file if missing and
-        // never truncates — exactly what we want on first sync.
+        // never truncates — exactly what we want on first sync. The umask
+        // bracket makes a NEW file be born 0660 — without it the file exists
+        // as 0644 (default umask 022) for the window before the chmod below,
+        // and a local user who opens it in that window keeps a lockable fd
+        // forever (flock works on read-only fds).
+        $previousUmask = umask(0117);
         $fp = @fopen($path, 'c');
+        umask($previousUmask);
         if ($fp === false && file_exists($path)) {
             // File exists but we lack write access (created under a
             // different uid). flock works on a read-only fd too.
@@ -42,11 +48,21 @@ final class LockFile
             ));
         }
 
-        // Best-effort: future runs under any uid in the same group should
-        // be able to take the lock without falling back to read mode.
-        // chmod() silently fails if we don't own the file — which is fine
-        // because we already have an fd we can flock.
-        @chmod($path, 0666);
+        // Best-effort hardening: 0660, NOT 0666 — a world-accessible lock on
+        // a predictable path lets any local user open it and grab LOCK_EX,
+        // silently wedging every sync (flock works even on a read-only fd).
+        //
+        // 0660 alone would break the cross-uid case this class exists for: a
+        // root-created lock is group root, which psaadm cannot open at all.
+        // Aligning the file's group with the var dir's group (psaadm on
+        // Plesk) keeps the scheduler able to open it in write mode while
+        // still excluding everyone else. Both calls silently no-op when we
+        // don't own the file — fine, because we already hold an fd to flock.
+        $dirGroup = @filegroup(dirname($path));
+        if ($dirGroup !== false) {
+            @chgrp($path, $dirGroup);
+        }
+        @chmod($path, 0660);
 
         return $fp;
     }

@@ -6,6 +6,34 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [0.5.19] — 2026-07-13
+### Security
+Hardening pass following a full code audit — all defense-in-depth; no
+exploitable vulnerability was found in 0.5.18.
+- **Lock files and `sync.log` are no longer world-accessible.** Advisory-lock
+  files in the extension var dir are now born `0660` (umask-bracketed, so
+  there is no world-readable window) with their group aligned to the var
+  dir's group, so an unprivileged local user can no longer open a lock and
+  hold it to stall the scheduled sync. `sync.log` gets the same treatment on
+  creation, keeping zone names and sync diffs out of world-readable reach.
+  On upgrade, `post-install` sweeps files left behind by earlier versions to
+  the new permissions. Cross-uid locking (scheduler vs. manual root runs)
+  keeps working via the group grant.
+- **Cloudflare ids are validated before URL use.** Zone and record ids are
+  checked against a strict character allowlist before being interpolated
+  into API request paths, and the client rejects request paths containing
+  whitespace, `?`, `#`, or control bytes — closing any path/query-injection
+  route via a crafted id.
+- **Settings are validated on save.** The Cloudflare account ID must be a
+  32-character hex id and the alert email must be a valid address; malformed
+  values are rejected with a clear error instead of breaking sync or the
+  watchdog alert downstream.
+### Changed
+- **API retries now also carry a wall-clock ceiling.** Retrying was already
+  bounded by the retry count (3 attempts, 30s transport timeout each); a
+  ~2-minute wall-clock budget now backstops it so a future change to either
+  knob can never let a degraded upstream stall a poll cycle unboundedly.
+
 ## [0.5.18] — 2026-05-30
 ### Added
 - **Proxy-status badge** on the settings page — a read-only, per-domain

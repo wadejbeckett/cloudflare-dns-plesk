@@ -61,6 +61,15 @@ final class Client
      */
     public function raw(string $method, string $path, ?array $body = null, array $query = []): array
     {
+        // The path is interpolated straight into the URL before the query
+        // string. Reject anything that could smuggle a query/fragment or a
+        // control byte (whitespace, `?`, `#`, C0 controls, DEL) so a crafted
+        // id segment can't rewrite the request. Slashes are legitimate path
+        // separators.
+        if (preg_match('/[\s?#\x00-\x1F\x7F]/', $path)) {
+            throw new ApiException('Invalid Cloudflare API path.');
+        }
+
         $url = self::BASE_URL . '/' . ltrim($path, '/');
         if ($query !== []) {
             $url .= '?' . http_build_query($query);
@@ -77,9 +86,21 @@ final class Client
             $headers['Content-Type'] = 'application/json';
         }
 
+        // Wall-clock ceiling for this logical request, checked before each
+        // backoff sleep (projected sleep counted against the budget). With
+        // the default maxRetries=3 and the transport's 30s timeout the retry
+        // count is the binding limit and this never fires — it is belt-and-
+        // braces so a future caller raising maxRetries or the transport
+        // timeout cannot stall a synchronous poll unboundedly.
+        $deadline = time() + 120;
+
         $attempt = 0;
         while (true) {
             $attempt++;
+            // Exponential backoff, capped at 30s. The retry decision is made
+            // AFTER each attempt (the attempt itself consumes wall clock, so
+            // the deadline must be re-read then, not before the request).
+            $backoff = (int) min(30, 2 ** $attempt);
 
             // Transport-layer failures (DNS lookup, TLS handshake, connection
             // reset, timeout) come up as ApiException with httpStatus 0. They
@@ -88,16 +109,17 @@ final class Client
             try {
                 $response = $this->transport->send($method, $url, $headers, $encodedBody);
             } catch (ApiException $e) {
-                if ($attempt <= $this->maxRetries) {
-                    sleep((int) min(30, 2 ** $attempt));
+                if ($attempt <= $this->maxRetries && time() + $backoff < $deadline) {
+                    sleep($backoff);
                     continue;
                 }
                 throw $e;
             }
 
-            if (in_array($response->status, self::RETRYABLE, true) && $attempt <= $this->maxRetries) {
-                // Exponential backoff, capped at 30s.
-                sleep((int) min(30, 2 ** $attempt));
+            if (in_array($response->status, self::RETRYABLE, true)
+                && $attempt <= $this->maxRetries && time() + $backoff < $deadline
+            ) {
+                sleep($backoff);
                 continue;
             }
 
