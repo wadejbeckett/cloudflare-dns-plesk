@@ -13,6 +13,9 @@ namespace Noiz\CloudflareDns\PleskDns;
  * flock() works on any open file descriptor on Linux, including a
  * read-only one, so a write-mode open is preferred but a read-mode
  * fallback gets the lock without requiring write access to the file.
+ *
+ * Also home to {@see alignPerms()}, the one implementation of the var-dir
+ * file-permission posture shared by the lock files and sync.log.
  */
 final class LockFile
 {
@@ -48,22 +51,32 @@ final class LockFile
             ));
         }
 
-        // Best-effort hardening: 0660, NOT 0666 — a world-accessible lock on
-        // a predictable path lets any local user open it and grab LOCK_EX,
-        // silently wedging every sync (flock works even on a read-only fd).
-        //
-        // 0660 alone would break the cross-uid case this class exists for: a
-        // root-created lock is group root, which psaadm cannot open at all.
-        // Aligning the file's group with the var dir's group (psaadm on
-        // Plesk) keeps the scheduler able to open it in write mode while
-        // still excluding everyone else. Both calls silently no-op when we
-        // don't own the file — fine, because we already hold an fd to flock.
+        self::alignPerms($path);
+
+        return $fp;
+    }
+
+    /**
+     * Best-effort hardening for a file in the extension's var dir: 0660,
+     * group aligned to the parent directory's.
+     *
+     * 0660, NOT 0666 — a world-accessible lock on a predictable path lets
+     * any local user open it and grab LOCK_EX, silently wedging every sync
+     * (flock works even on a read-only fd), and a world-readable sync.log
+     * leaks every zone name and sync diff. 0660 alone would break the
+     * cross-uid case this class exists for: a root-created file is group
+     * root, which psaadm cannot open at all. Aligning the group with the
+     * var dir's (psaadm on Plesk) keeps the scheduler able to open it in
+     * write mode while still excluding everyone else. Both calls silently
+     * no-op when we don't own the file (callers either already hold a
+     * usable fd, or the next privileged run repairs the file).
+     */
+    public static function alignPerms(string $path): void
+    {
         $dirGroup = @filegroup(dirname($path));
         if ($dirGroup !== false) {
             @chgrp($path, $dirGroup);
         }
         @chmod($path, 0660);
-
-        return $fp;
     }
 }

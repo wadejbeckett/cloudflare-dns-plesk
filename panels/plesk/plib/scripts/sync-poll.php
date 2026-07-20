@@ -43,24 +43,28 @@ function cfdns_poll_log(string $message): void
     $message = strtr($message, ["\r" => ' ', "\n" => ' ', "\0" => '']);
     fwrite(STDOUT, 'cloudflare-dns-sync-poll: ' . $message . "\n");
     $path = rtrim(pm_Context::getVarDir(), '/') . '/sync.log';
-    $isNew = !file_exists($path);
-    @file_put_contents(
-        $path,
-        '[' . date('Y-m-d H:i:s') . '] [poll] ' . $message . "\n",
-        FILE_APPEND
-    );
-    if ($isNew) {
-        // Same posture as the lock files (see LockFile): owner+group only,
-        // group aligned to the var dir's so root- and psaadm-created logs
-        // stay appendable by the other uid. The log carries every zone name
-        // and sync diff — keep it out of world-readable reach. Best-effort:
-        // both calls silently no-op when we don't own the file.
-        $dirGroup = @filegroup(dirname($path));
-        if ($dirGroup !== false) {
-            @chgrp($path, $dirGroup);
+    $line = '[' . date('Y-m-d H:i:s') . '] [poll] ' . $message . "\n";
+
+    // Only this process's FIRST append can create the file — a mid-run
+    // rotation recreates it itself (see cfdns_poll_rotate_log) — so the
+    // create-time fixup needs no per-line stat. A created log gets the same
+    // posture as the locks, with the umask bracket closing the 0644 birth
+    // window: the log carries every zone name and sync diff, keep it
+    // group-only (see LockFile::alignPerms).
+    static $firstWrite = true;
+    if ($firstWrite) {
+        $firstWrite = false;
+        if (!file_exists($path)) {
+            $previousUmask = umask(0117);
+            @file_put_contents($path, $line, FILE_APPEND);
+            umask($previousUmask);
+            LockFile::alignPerms($path);
+
+            return;
         }
-        @chmod($path, 0660);
     }
+
+    @file_put_contents($path, $line, FILE_APPEND);
 }
 
 /**
@@ -76,10 +80,18 @@ function cfdns_poll_rotate_log(): void
     if (!is_file($log) || (int) @filesize($log) < 5 * 1024 * 1024) {
         return;
     }
-    // Shift generations oldest-first, then the current log becomes .1. The
-    // next cfdns_poll_log() append recreates a fresh sync.log.
+    // Shift generations oldest-first, then the current log becomes .1.
     @rename($log . '.1', $log . '.2');
     @rename($log, $log . '.1');
+
+    // Recreate the fresh log immediately (logrotate's `create` behaviour):
+    // cfdns_poll_log's create-time permission fixup runs only on a process's
+    // first write, so rotation must not leave "no file" behind for a later
+    // append to create unhardened.
+    $previousUmask = umask(0117);
+    @touch($log);
+    umask($previousUmask);
+    LockFile::alignPerms($log);
 }
 
 function cfdns_poll_enabled_domains(): array

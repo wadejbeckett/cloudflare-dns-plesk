@@ -63,10 +63,13 @@ final class Client
     {
         // The path is interpolated straight into the URL before the query
         // string. Reject anything that could smuggle a query/fragment or a
-        // control byte (whitespace, `?`, `#`, C0 controls, DEL) so a crafted
-        // id segment can't rewrite the request. Slashes are legitimate path
-        // separators.
-        if (preg_match('/[\s?#\x00-\x1F\x7F]/', $path)) {
+        // control byte (whitespace, `?`, `#`, C0 controls, DEL), and any
+        // `.`/`..` dot-segment — a `..` would retarget the request one path
+        // level up (e.g. turn a record DELETE into a zone DELETE). Slashes
+        // are legitimate separators; no Cloudflare v4 path has dot-segments.
+        if (preg_match('/[\s?#\x00-\x1F\x7F]/', $path)
+            || preg_match('~(?:^|/)\.\.?(?:/|$)~', $path)
+        ) {
             throw new ApiException('Invalid Cloudflare API path.');
         }
 
@@ -97,9 +100,7 @@ final class Client
         $attempt = 0;
         while (true) {
             $attempt++;
-            // Exponential backoff, capped at 30s. The retry decision is made
-            // AFTER each attempt (the attempt itself consumes wall clock, so
-            // the deadline must be re-read then, not before the request).
+            // Exponential backoff, capped at 30s.
             $backoff = (int) min(30, 2 ** $attempt);
 
             // Transport-layer failures (DNS lookup, TLS handshake, connection
@@ -109,7 +110,7 @@ final class Client
             try {
                 $response = $this->transport->send($method, $url, $headers, $encodedBody);
             } catch (ApiException $e) {
-                if ($attempt <= $this->maxRetries && time() + $backoff < $deadline) {
+                if ($this->canRetry($attempt, $backoff, $deadline)) {
                     sleep($backoff);
                     continue;
                 }
@@ -117,7 +118,7 @@ final class Client
             }
 
             if (in_array($response->status, self::RETRYABLE, true)
-                && $attempt <= $this->maxRetries && time() + $backoff < $deadline
+                && $this->canRetry($attempt, $backoff, $deadline)
             ) {
                 sleep($backoff);
                 continue;
@@ -137,6 +138,17 @@ final class Client
 
             return $decoded;
         }
+    }
+
+    /**
+     * The retry gate, shared by the transport-failure and retryable-status
+     * branches. Evaluated AFTER each attempt — the attempt itself consumes
+     * wall clock, so the deadline is re-read here, with the projected sleep
+     * counted against the budget.
+     */
+    private function canRetry(int $attempt, int $backoff, int $deadline): bool
+    {
+        return $attempt <= $this->maxRetries && time() + $backoff < $deadline;
     }
 
     /**

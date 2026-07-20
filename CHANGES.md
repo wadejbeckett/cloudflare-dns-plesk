@@ -9,6 +9,26 @@ All notable changes to this project are documented here. Versions follow
 [SemVer](https://semver.org/). The authoritative per-tag detail lives in the
 [GitHub Releases](https://github.com/wadejbeckett/cloudflare-dns-sync/releases).
 
+## [0.5.20] — 2026-07-20
+### Security
+- **Request paths reject dot-segments at the API client.** The Cloudflare
+  client now refuses any request path containing a `.`/`..` segment, so a
+  path-traversal id is stopped at the one chokepoint every request flows
+  through; the record-level id validation from 0.5.19 stays in place as the
+  inner defense-in-depth layer.
+- **`sync.log` is born `0660` like the lock files.** The append that creates
+  the log now runs under a umask bracket, closing the brief world-readable
+  window between creation and the permission fixup, and log rotation
+  recreates the fresh log the same way instead of leaving creation to the
+  next append.
+### Changed
+- **The 0.5.19 hardening is consolidated into shared helpers.** The var-dir
+  permission posture (group-align + `0660`) now lives in one place, used by
+  the locks, the log, and the upgrade sweep; record-id validation is fused
+  with URL construction in a single funnel; the retry gate is one shared
+  predicate. Also drops a per-log-line file-existence check. No behaviour
+  change beyond the two Security items above.
+
 ## [0.5.19] — 2026-07-13
 ### Security
 Hardening pass following a full code audit — all defense-in-depth; no

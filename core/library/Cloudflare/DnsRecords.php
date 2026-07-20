@@ -39,7 +39,7 @@ final class DnsRecords
     {
         if (!preg_match('/^[A-Za-z0-9._-]+$/D', $id)
             || strpos($id, '..') !== false
-            || trim($id, '.') === ''
+            || $id === '.'
         ) {
             throw new ApiException(sprintf('Invalid Cloudflare %s id.', $what));
         }
@@ -111,13 +111,11 @@ final class DnsRecords
      */
     public function update(RecordUpdate $update): Record
     {
-        $id = $update->existing->id;
-        if ($id === null) {
-            throw new ApiException('Cannot update a record without a Cloudflare id.');
-        }
-        self::assertId($id, 'record');
-
-        $result = $this->client->request('PATCH', $this->base() . '/' . $id, $update->patchPayload());
+        $result = $this->client->request(
+            'PATCH',
+            $this->recordPath($update->existing->id, 'update'),
+            $update->patchPayload()
+        );
         if (!is_array($result)) {
             throw new ApiException('Unexpected response updating record "' . $update->existing->name . '".');
         }
@@ -132,12 +130,7 @@ final class DnsRecords
      */
     public function claim(Record $record): void
     {
-        if ($record->id === null) {
-            throw new ApiException('Cannot adopt a record without a Cloudflare id.');
-        }
-        self::assertId($record->id, 'record');
-
-        $this->client->request('PATCH', $this->base() . '/' . $record->id, [
+        $this->client->request('PATCH', $this->recordPath($record->id, 'adopt'), [
             'comment' => Ownership::stamp($record->comment),
         ]);
     }
@@ -147,12 +140,7 @@ final class DnsRecords
      */
     public function delete(Record $record): void
     {
-        if ($record->id === null) {
-            throw new ApiException('Cannot delete a record without a Cloudflare id.');
-        }
-        self::assertId($record->id, 'record');
-
-        $this->client->request('DELETE', $this->base() . '/' . $record->id);
+        $this->client->request('DELETE', $this->recordPath($record->id, 'delete'));
     }
 
     /**
@@ -212,6 +200,22 @@ final class DnsRecords
         // are informational only — surfaced in sync.log and the status row.
 
         return $report;
+    }
+
+    /**
+     * The request path for one record — the single funnel from a record id
+     * to a URL, so an id cannot reach the path without {@see assertId()}.
+     *
+     * @param string|null $id   the record's Cloudflare id, if it has one
+     * @param string      $verb for the id-missing error message
+     */
+    private function recordPath(?string $id, string $verb): string
+    {
+        if ($id === null) {
+            throw new ApiException(sprintf('Cannot %s a record without a Cloudflare id.', $verb));
+        }
+
+        return $this->base() . '/' . self::assertId($id, 'record');
     }
 
     private function base(): string

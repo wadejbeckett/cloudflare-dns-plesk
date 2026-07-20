@@ -18,6 +18,12 @@ declare(strict_types=1);
  * The slot stays free for any other DNS-backend extension to use.
  */
 
+use Noiz\CloudflareDns\PleskDns\LockFile;
+
+// Plesk boots its SDK for this script; the extension's own library needs
+// its autoloader loaded explicitly (same as sync-poll.php).
+require_once __DIR__ . '/../library/autoload.php';
+
 $scheduler = pm_Scheduler::getInstance();
 
 // The scheduled tasks this module wants, keyed by the script they run:
@@ -90,16 +96,12 @@ if ((string) pm_Settings::get('last_poll_ts', '') === '') {
 // this repairs the ones that already exist. post-install runs privileged,
 // so it can fix root-owned leftovers the psaadm poll can never repair.
 $varDir = rtrim(pm_Context::getVarDir(), '/');
-$varDirGroup = @filegroup($varDir);
 $legacyFiles = array_merge(
     glob($varDir . '/*.lock') ?: [],
     glob($varDir . '/sync.log*') ?: []
 );
 foreach ($legacyFiles as $legacyFile) {
-    if ($varDirGroup !== false) {
-        @chgrp($legacyFile, $varDirGroup);
-    }
-    @chmod($legacyFile, 0660);
+    LockFile::alignPerms($legacyFile);
 }
 
 // We deliberately do NOT touch the custom-DNS-backend slot here. Earlier
